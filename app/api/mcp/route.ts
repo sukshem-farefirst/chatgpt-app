@@ -193,41 +193,26 @@ function generateFlightCards(params: SearchParams): FlightCard[] {
   return flights;
 }
 
-// Format flight cards as markdown for ChatGPT display
-function formatFlightCardsMarkdown(
-  flights: FlightCard[],
-  params: SearchParams,
-): string {
-  const displayDate = new Date(params.date).toLocaleDateString("en-US", {
-    weekday: "short",
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-
-  const flightCardsText = flights
+// NEW: Better card formatting for ChatGPT display
+function formatAsCards(flights: FlightCard[]): string {
+  return flights
     .map((flight) => {
-      const amenities = flight.amenities.slice(0, 3).join(" • ");
-      return `**${flight.airline} ${flight.flightNumber}** — ${flight.stops}
-🕒 ${flight.departureTime} ${flight.origin} → ${flight.arrivalTime} ${flight.destination}
-⏱️ ${flight.duration} • ${flight.fareClass}
-✨ ${amenities}
-💰 **${flight.price}**
-🔗 [Book Now](${flight})`;
+      const amenitiesText = flight.amenities.slice(0, 3).join(" • ");
+      
+      return `### ✈️ ${flight.airline} ${flight.flightNumber}
+
+**🛫 ${flight.departureTime}** ${flight.origin} → **🛬 ${flight.arrivalTime}** ${flight.destination}
+
+⏱️ **Duration:** ${flight.duration}  
+🎫 **${flight.stops}**  
+💺 **Class:** ${flight.fareClass}  
+✨ ${amenitiesText}
+
+### 💰 ${flight.price}
+
+[🎫 **Book This Flight**](${flight.bookingUrl})`;
     })
     .join("\n\n---\n\n");
-
-  return `# ✈️ FareFirst Flights\n\n## ${params.from} → ${params.to} • ${displayDate}\n\n${flightCardsText}\n\n---\n\n**${flights.length} flights found** • Sorted by price\n\n**Options:**\n• Filter by: Non-stop only | Cheapest | Earliest departure\n• Get fare breakdown & baggage details\n• Compare with other dates\n• Proceed to booking`;
-}
-
-// Format as simple cards for ChatGPT's display
-function formatAsSimpleCards(flights: FlightCard[]): string {
-  return flights
-    .map(
-      (flight) =>
-        `- **${flight.airline} ${flight.flightNumber}** — ${flight.stops}\n  ${flight.departureTime} ${flight.origin} → ${flight.arrivalTime} ${flight.destination} (${flight.duration})\n  ${flight.fareClass} • ${flight.amenities.slice(0, 2).join(", ")}\n  ${flight.price} • [Book](${flight.bookingUrl})`,
-    )
-    .join("\n\n");
 }
 
 export async function POST(req: NextRequest) {
@@ -328,10 +313,23 @@ export async function POST(req: NextRequest) {
         day: "numeric",
       });
 
-      // Create the response text with proper markdown formatting
-      const responseText = `✅ Found ${flights.length} flights from ${fromCode} to ${toCode} on ${displayDate}:\n\n${formatAsSimpleCards(flights)}\n\n**What would you like to do next?**\n• Filter by nonstop only\n• Sort by cheapest price\n• Get detailed fare breakdown\n• Proceed to booking`;
+      // Create the response with improved card formatting
+      const responseText = 
+        `# 🛫 Flight Search Results\n\n` +
+        `**Route:** ${fromCode} → ${toCode}  \n` +
+        `**Date:** ${displayDate}  \n` +
+        `**Passengers:** ${passengers}\n\n` +
+        `Found **${flights.length} available flights**:\n\n` +
+        `---\n\n` +
+        formatAsCards(flights) +
+        `\n\n---\n\n` +
+        `**What would you like to do next?**\n\n` +
+        `• Filter by nonstop flights only\n` +
+        `• Sort by cheapest price\n` +
+        `• Get detailed fare breakdown\n` +
+        `• Proceed to booking`;
 
-      // Return in MCP format - KEEP IT SIMPLE to avoid 424 errors
+      // Return in MCP format
       return mcpResponse(id, {
         content: [
           {
@@ -339,13 +337,6 @@ export async function POST(req: NextRequest) {
             text: responseText,
           },
         ],
-        // Minimal additional data - only what's needed
-        _meta: {
-          flightCount: flights.length,
-          origin: fromCode,
-          destination: toCode,
-          date: displayDate,
-        },
       });
     }
 
@@ -368,7 +359,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// GET endpoint for testing
+// GET endpoint for testing with HTML preview
 export async function GET(req: NextRequest) {
   const searchParams = req.nextUrl.searchParams;
   const from = searchParams.get("from") || "Delhi";
@@ -442,6 +433,8 @@ export async function GET(req: NextRequest) {
         display: flex;
         justify-content: space-between;
         align-items: center;
+        flex-wrap: wrap;
+        gap: 15px;
       }
       
       .flight-card {
@@ -598,10 +591,23 @@ export async function GET(req: NextRequest) {
       
       .test-info {
         background: #fef3c7;
-        padding: 15px;
+        padding: 20px;
         border-radius: 12px;
         margin-top: 30px;
         border: 1px solid #f59e0b;
+      }
+      
+      .test-info h3 {
+        margin-bottom: 10px;
+        color: #92400e;
+      }
+      
+      .test-info code {
+        background: white;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-family: monospace;
+        color: #1e40af;
       }
       
       @media (max-width: 768px) {
@@ -621,6 +627,11 @@ export async function GET(req: NextRequest) {
         
         .arrow {
           transform: rotate(90deg);
+        }
+        
+        .search-info {
+          flex-direction: column;
+          align-items: flex-start;
         }
       }
     </style>
@@ -701,17 +712,17 @@ export async function GET(req: NextRequest) {
         .join("")}
       
       <div class="test-info">
-        <h3>Test in ChatGPT:</h3>
-        <p>Use: <strong>@FareFirst Find flights from ${from} to ${to} on ${date}</strong></p>
-        <p style="margin-top: 10px; font-size: 14px;">
-          The MCP server will return formatted flight cards that ChatGPT can display.
+        <h3>🧪 Test in ChatGPT:</h3>
+        <p>Use: <code>@FareFirst Find flights from ${from} to ${to} on ${date}</code></p>
+        <p style="margin-top: 10px; font-size: 14px; color: #92400e;">
+          The MCP server will return card-formatted results in ChatGPT's markdown renderer.
         </p>
       </div>
       
       <div class="footer">
-        <p>FareFirst MCP Server • Version 1.0.0</p>
+        <p><strong>FareFirst MCP Server</strong> • Version 1.0.0</p>
         <p style="margin-top: 10px; font-size: 14px;">
-          This is a test interface. All flight data is sample data.
+          This is a test interface. All flight data is sample data for demonstration.
         </p>
       </div>
     </div>
