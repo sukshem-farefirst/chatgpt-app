@@ -84,7 +84,16 @@ async function fetchFlights(
 function formatFlights(flights: FlightSummary[]): string {
   return flights
     .map((flight) => {
-      return `* **${flight.airline}** — ${flight.tripType}, ${flight.departureTime} → ${flight.arrivalTime} (${flight.duration}) — ${flight.price} — [Select on FareFirst](https://farefirst.in/).`;
+      const bookingUrl = `https://farefirst.com`;
+      return `
+### ✈️ ${flight.airline}
+${flight.tripType}
+${flight.departureTime} → ${flight.arrivalTime}
+${flight.duration}
+${flight.price}
+
+${bookingUrl}
+`;
     })
     .join("\n");
 }
