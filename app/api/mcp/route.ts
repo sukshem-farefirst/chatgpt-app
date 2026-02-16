@@ -22,7 +22,7 @@ interface SearchResponse {
   [key: string]: any;
 }
 
-const BASE_URL = "https://super.staging.net.in/api/v1/ss/v3/flights";
+const BASE_URL = "url";
 const IS_LIVE = true;
 
 function mcpResponse(id: string | number | null, result: unknown) {
@@ -242,7 +242,7 @@ async function fetchFlights(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": "SSZbsPSLJKxYqHCQDHvOG6EnhZZFG4TTSI",
+          "x-api-key": "apikey",
         },
         body: JSON.stringify(payload),
       },
@@ -312,27 +312,41 @@ async function fetchFlights(
   }
 }
 
+// function formatFlightsAsMarkdown(flights: FlightSummary[]): string {
+//   const bookingUrl = "https://farefirst.com";
+
+//   return flights
+//     .map((flight) => {
+//       return `
+// ###  ${flight.airline}
+
+// **${flight.departureTime}** --> **${flight.arrivalTime}**  
+// **${flight.from}** → **${flight.to}** • ${flight.duration}
+
+// ${flight.stops} | Economy Class
+
+//  **${flight.price}**
+
+// [**Book This Flight**](${bookingUrl})
+
+// ---
+// `.trim();
+//     })
+//     .join("\n\n");
+// }
+
 function formatFlightsAsMarkdown(flights: FlightSummary[]): string {
-  const bookingUrl = "https://farefirst.com";
+  const header = `
+| Airline | Departure | Arrival | Duration | Stops | Price | Book |
+|---------|-----------|---------|----------|-------|-------|------|
+`;
+    const bookLink = `[Book](https://farefirst.com)`;
 
-  return flights
-    .map((flight) => {
-      return `
-### 🛫 ${flight.airline}
+  const rows = flights.map((flight, index) => {
+    return `|**${flight.airline}** | ${flight.departureTime} | ${flight.arrivalTime} | ${flight.duration} | ${flight.stops} | **${flight.price}** | ${bookLink} |`;
+  }).join("\n");
 
-**${flight.departureTime}** --> **${flight.arrivalTime}**  
-**${flight.from}** → **${flight.to}** • ${flight.duration}
-
-${flight.stops} | Economy Class
-
-💰 **${flight.price}**
-
-[**Book This Flight**](${bookingUrl})
-
----
-`.trim();
-    })
-    .join("\n\n");
+  return header + rows + bookLink;
 }
 
 export async function POST(req: NextRequest) {
