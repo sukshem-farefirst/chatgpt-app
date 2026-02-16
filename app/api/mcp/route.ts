@@ -22,7 +22,7 @@ interface SearchResponse {
   [key: string]: any;
 }
 
-const BASE_URL = "url";
+const BASE_URL = "https://super.staging.net.in/api/v1/ss/v3/flights";
 const IS_LIVE = true;
 
 function mcpResponse(id: string | number | null, result: unknown) {
@@ -211,6 +211,8 @@ function extractData(
         layover: layoverText || undefined,
       });
     }
+    console.log(flights.length);
+
     return flights;
   } catch (error) {
     console.error("Error:", error);
@@ -242,7 +244,7 @@ async function fetchFlights(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": "apikey",
+          "x-api-key": "SSZbsPSLJKxYqHCQDHvOG6EnhZZFG4TTSI",
         },
         body: JSON.stringify(payload),
       },
@@ -268,14 +270,7 @@ async function fetchFlights(
       throw new Error("SessionToken nil");
     }
 
-    const effectiveFrom = from || "BLR";
-    const effectiveTo = to || "DEL";
-
-    const flights = extractData(
-      searchData,
-      effectiveFrom,
-      effectiveTo,
-    );
+    const flights = extractData(searchData, from!, to!);
 
     console.log(`\n${flights.length} flights`);
 
@@ -320,7 +315,7 @@ async function fetchFlights(
 //       return `
 // ###  ${flight.airline}
 
-// **${flight.departureTime}** --> **${flight.arrivalTime}**  
+// **${flight.departureTime}** --> **${flight.arrivalTime}**
 // **${flight.from}** → **${flight.to}** • ${flight.duration}
 
 // ${flight.stops} | Economy Class
@@ -338,15 +333,15 @@ async function fetchFlights(
 function formatFlightsAsMarkdown(flights: FlightSummary[]): string {
   const header = `
 | Airline | Departure | Arrival | Duration | Stops | Price | Book |
-|---------|-----------|---------|----------|-------|-------|------|
+|---------|-----------|---------|----------|-------|-------|-------|
 `;
-    const bookLink = `[Book](https://farefirst.com)`;
 
   const rows = flights.map((flight, index) => {
-    return `|**${flight.airline}** | ${flight.departureTime} | ${flight.arrivalTime} | ${flight.duration} | ${flight.stops} | **${flight.price}** | ${bookLink} |`;
+    const bookLink = `[Book](https://farefirst.com)`;
+    return `| **${flight.airline}** | ${flight.departureTime} | ${flight.arrivalTime} | ${flight.duration} | ${flight.stops} | **${flight.price}** | ${bookLink} |`;
   }).join("\n");
 
-  return header + rows + bookLink;
+  return header + rows;
 }
 
 export async function POST(req: NextRequest) {
@@ -417,61 +412,88 @@ export async function POST(req: NextRequest) {
     }
 
     if (method === "tools/call" && params?.name === "search_flights") {
-      const { from, to, date } =
-        params.arguments || {};
+      const { from, to, date } = params.arguments || {};
 
-      if (date) {
-        const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-        if (!dateRegex.test(date)) {
-          return mcpResponse(id, {
-            content: [
-              {
-                type: "text",
-                text: `Invalid date format. Please use YYYY-MM-DD format.\n`,
-              },
-            ],
-          });
-        }
-
-        const travelDate = new Date(date);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        if (travelDate < today) {
-          return mcpResponse(id, {
-            content: [
-              {
-                type: "text",
-                text: `Travel date cannot be in the past. Please select a future date.`,
-              },
-            ],
-          });
-        }
+      if (!from || !to || !date) {
+        return mcpResponse(id, {
+          content: [
+            {
+              type: "text",
+              text: `Missing required fields. Please provide 'from', 'to', and 'date' in YYYY-MM-DD format.`,
+            },
+          ],
+        });
       }
 
-      const effectiveFrom = from || "BLR";
-      const effectiveTo = to || "DEL";
-      const effectiveDate = date || getDefaultDate();
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(date)) {
+        return mcpResponse(id, {
+          content: [
+            {
+              type: "text",
+              text: `Invalid date format. Please use YYYY-MM-DD format.`,
+            },
+          ],
+        });
+      }
 
-      const flights = await fetchFlights(
-        effectiveFrom,
-        effectiveTo,
-        effectiveDate,
-      );
+      const travelDate = new Date(date);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
 
-      flights.map((flight)=>{
-        console.log(flight.airline);
-      })
+      if (travelDate < today) {
+        return mcpResponse(id, {
+          content: [
+            {
+              type: "text",
+              text: `Travel date cannot be in the past. Please select a future date.`,
+            },
+          ],
+        });
+      }
 
-      const header = `# Available Flights\n\n**${effectiveFrom} → ${effectiveTo}** • ${effectiveDate}\n\n`;
+      const flights = await fetchFlights(from, to, date);
+
+    //   return mcpResponse(id, {
+    //     content: [
+    //       {
+    //         type: "text",
+    //         text: JSON.stringify(
+    //           {
+    //             type: "flight_results",
+    //             route: {
+    //               from: from,
+    //               to: to,
+    //               date: date,
+    //             },
+    //             results: flights.map((flight) => ({
+    //               airline: flight.airline,
+    //               departureTime: flight.departureTime,
+    //               arrivalTime: flight.arrivalTime,
+    //               duration: flight.duration,
+    //               stops: flight.stops,
+    //               price: flight.price,
+    //               bookingUrl: "https://farefirst.com",
+    //             })),
+    //           },
+    //           null,
+    //           2,
+    //         ),
+    //       },
+    //     ],
+    //   });
+    // }
+
+      const header = `#  Available Flights\n\n**${from} → ${to}** • ${date}\n\n${flights.length} flights found\n\n`;
       const flightCards = formatFlightsAsMarkdown(flights);
-      const footer = `\n\n---\n\n **Tip**:  **Explore More Flight Options**  [Visit FareFirst.com](https://farefirst.com)`;
+      
+      const footer = `\n\n---\n\n **Tip**: Prices may vary. Book early for the best deals!\n\n[Visit FareFirst.com](https://farefirst.com) for more options.`;
 
       return mcpResponse(id, {
         content: [
           {
             type: "text",
-            text: header + flightCards + footer,
+            text: header + flightCards ,
           },
         ],
       });
