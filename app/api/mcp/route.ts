@@ -22,15 +22,6 @@ interface SearchResponse {
   [key: string]: any;
 }
 
-interface PollResponse {
-  sessionToken?: string;
-  refreshSessionToken?: string;
-  status?: "pending" | "completed" | "incomplete";
-  content?: any;
-  action?: any;
-  [key: string]: any;
-}
-
 const BASE_URL = "https://super.staging.net.in/api/v1/ss/v3/flights";
 const IS_LIVE = true;
 
@@ -396,7 +387,7 @@ export async function POST(req: NextRequest) {
                 },
                 cabinClass: {
                   type: "string",
-                  description: "Cabin class (default: CABIN_CLASS_ECONOMY)",
+                  description: "Cabin class Economy",
                   enum: [
                     "CABIN_CLASS_ECONOMY",
                     "CABIN_CLASS_PREMIUM_ECONOMY",
@@ -412,7 +403,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (method === "tools/call" && params?.name === "search_flights") {
-      const { from, to, date, adults, children, cabinClass } =
+      const { from, to, date } =
         params.arguments || {};
 
       if (date) {
@@ -447,28 +438,12 @@ export async function POST(req: NextRequest) {
       const effectiveFrom = from || "BLR";
       const effectiveTo = to || "DEL";
       const effectiveDate = date || getDefaultDate();
-      const effectiveAdults = adults || 1;
-      const effectiveChildren = children || 0;
-      const effectiveCabinClass = cabinClass || "CABIN_CLASS_ECONOMY";
 
       const flights = await fetchFlights(
         effectiveFrom,
         effectiveTo,
         effectiveDate,
-        effectiveAdults,
-        effectiveChildren,
-        effectiveCabinClass,
       );
-
-      const defaultsUsed: string[] = [];
-      if (!from) defaultsUsed.push(`From: ${effectiveFrom}`);
-      if (!to) defaultsUsed.push(`To: ${effectiveTo}`);
-      if (!date) defaultsUsed.push(`Date: ${effectiveDate}`);
-
-      const defaultsInfo =
-        defaultsUsed.length > 0
-          ? `\n💡 **Default values used**: ${defaultsUsed.join(", ")}\n\n`
-          : "";
 
       flights.map((flight)=>{
         console.log(flight.airline);
