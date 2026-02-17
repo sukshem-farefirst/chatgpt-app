@@ -183,17 +183,6 @@ export function formatFlightsAsMarkdown(
     .sort((a, b) => a.priceRaw - b.priceRaw);
 
   const lines: string[] = [];
-  lines.push(
-    `IMPORTANT: Output the following flight results EXACTLY as shown below.`,
-    `Do not summarize, group, reorder, or reformat. Show every flight card in full.`,
-    ``,
-  );
-
-  lines.push(
-    `## Flights: ${from} → ${to} | ${date}`,
-    `${flights.length} flights found | Economy | Per adult`,
-    ``,
-  );
 
   const tableHeader = [
     `| Airline | Departure | Arrival | Duration | Stops | Price | Book |`,
@@ -217,8 +206,6 @@ export function formatFlightsAsMarkdown(
   lines.push(
     `---`,
     ``,
-    `[Book on FareFirst](${BOOKING_URL})`,
-    ``,
     `[View All Results](${RESULTS_URL}/${fromEntityId ?? from}-${dateCompact}-${toEntityId ?? to}?adults=${adults}&children=${children}&ages=&cabin_class=Y&trip_type=oneway)`,
     ``,
   );
@@ -231,7 +218,22 @@ function renderFlightRow(flight: FlightSummary): string {
     ? `${flight.stops} (${flight.layover})`
     : flight.stops;
 
-  const bookLink = `[Book](${flight.deeplink})`;
+  const parts: string[] = flight.arrivalTime.split(":");
 
-  return `| ${flight.airline} | ${flight.departureTime} | ${flight.arrivalTime} | ${flight.duration} | ${stops} | ${flight.price} | ${bookLink} |`;
+  const hourString: string = parts[0];
+  const minString: string = parts[1];
+  const hourInteger: number = parseInt(hourString, 10);
+  const period = hourInteger >= 12 ? "pm" : "am";
+  const arrival = hourInteger + ":" + minString + " " + period;
+
+  const parts1: string[] = flight.departureTime.split(":");
+
+  const hourString1: string = parts1[0];
+  const minString1: string = parts1[1];
+  const hourInteger1: number = parseInt(hourString1, 10);
+  const period1 = hourInteger1 >= 12 ? "pm" : "am";
+  const departure = hourInteger1 + ":" + minString1 + " " + period1;
+  const bookLink = `[Book]()`;
+
+  return `| ${flight.airline} | ${departure} | ${arrival} | ${flight.duration} | ${stops} | ${flight.price} | ${bookLink} |`;
 }

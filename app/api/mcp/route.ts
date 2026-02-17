@@ -1,10 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchFlights, resolveAirport, FlightSearchResult } from "./flightApi";
 import { formatFlightsAsMarkdown, sortFlights } from "./flightUtils";
-import { BOOKING_URL, RESULTS_URL } from "./types";
+import { BOOKING_URL } from "./types";
+
+interface CacheEntry {
+  key: string;
+  result: FlightSearchResult;
+  markdown: string;
+}
+let searchCache: CacheEntry | null = null;
+
+function makeCacheKey(
+  from: string,
+  to: string,
+  isoDate: string,
+  adults: number,
+  children: number,
+  cabinClass: string,
+): string {
+  return [from, to, isoDate, String(adults), String(children), cabinClass]
+    .join("|")
+    .toUpperCase();
+}
 
 function mcpResponse(id: string | number | null, result: unknown) {
   return NextResponse.json({ jsonrpc: "2.0", id, result });
+}
+
+function formatReadable(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -41,7 +70,8 @@ export async function POST(req: NextRequest) {
               properties: {
                 searchTerm: {
                   type: "string",
-                  description: "City or airport name to look up (e.g. 'Delhi', 'Bengaluru', 'Mumbai')",
+                  description:
+                    "City or airport name to look up (e.g. 'Delhi', 'Bengaluru', 'Mumbai')",
                 },
               },
             },
@@ -55,6 +85,10 @@ export async function POST(req: NextRequest) {
               "RULE: Every flight card must appear in full with all 6 fields and its own Book link.",
               "RULE: The two footer links must appear at the end of every response.",
               "RULE: Do not add any text, commentary, or follow-up questions before or between flight cards.",
+              "RULE: If the user asks the same question again without changing from, to, or date, answer using the cached result you already have. Do NOT call this tool again.",
+              "RULE: Only call this tool again when at least one of from, to, or date has changed from the previous search.",
+              "RULE: If the tool returns a response that starts with AMBIGUOUS_DATE, do NOT show flight results. Ask the user the exact question from the response and wait for their answer before calling this tool again.",
+              "RULE: Never guess the correct interpretation of an ambiguous date like 03/04/2026. Always ask the user to clarify first.",
             ].join(" "),
             inputSchema: {
               type: "object",
@@ -99,11 +133,13 @@ export async function POST(req: NextRequest) {
                 },
                 fromEntityId: {
                   type: "string",
-                  description: "Skyscanner entityId for origin (from resolve_airport). Takes priority over 'from' IATA.",
+                  description:
+                    "Skyscanner entityId for origin (from resolve_airport). Takes priority over 'from' IATA.",
                 },
                 toEntityId: {
                   type: "string",
-                  description: "Skyscanner entityId for destination (from resolve_airport). Takes priority over 'to' IATA.",
+                  description:
+                    "Skyscanner entityId for destination (from resolve_airport). Takes priority over 'to' IATA.",
                 },
               },
             },
@@ -117,7 +153,9 @@ export async function POST(req: NextRequest) {
 
       if (!searchTerm) {
         return mcpResponse(id, {
-          content: [{ type: "text", text: "Missing required field: searchTerm." }],
+          content: [
+            { type: "text", text: "Missing required field: searchTerm." },
+          ],
         });
       }
 
@@ -125,7 +163,12 @@ export async function POST(req: NextRequest) {
 
       if (!result) {
         return mcpResponse(id, {
-          content: [{ type: "text", text: `Could not resolve airport for "${searchTerm}". Try a more specific name or use the IATA code directly.` }],
+          content: [
+            {
+              type: "text",
+              text: `Could not resolve airport for "${searchTerm}". Try a more specific name or use the IATA code directly.`,
+            },
+          ],
         });
       }
 
@@ -167,33 +210,92 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
+      const SLASH_RE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+
+      let isoDate: string;
+
+      if (ISO_RE.test(date)) {
+        isoDate = date;
+      } else if (SLASH_RE.test(date)) {
+        const match = date.match(SLASH_RE)!;
+        const p1 = parseInt(match[1], 10);
+        const p2 = parseInt(match[2], 10);
+        const yr = parseInt(match[3], 10);
+
+        if (p1 <= 12 && p2 <= 12) {
+          const optA = `${yr}-${String(p2).padStart(2, "0")}-${String(p1).padStart(2, "0")}`;
+          const optB = `${yr}-${String(p1).padStart(2, "0")}-${String(p2).padStart(2, "0")}`;
+          return mcpResponse(id, {
+            content: [
+              {
+                type: "text",
+                text: [
+                  `AMBIGUOUS_DATE`,
+                  `Did you mean ${formatReadable(optA)} or ${formatReadable(optB)}?`,
+                  `Please confirm and I will search flights for you.`,
+                ].join("\n"),
+              },
+            ],
+          });
+        }
+
+        const [day, month] = p1 > 12 ? [p1, p2] : [p2, p1];
+        isoDate = `${yr}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      } else {
         return mcpResponse(id, {
           content: [
             {
               type: "text",
-              text: "Invalid date format. Please use YYYY-MM-DD (e.g. 2026-03-05).",
+              text: `Invalid date format "${date}". Please use YYYY-MM-DD (e.g. 2026-04-03).`,
             },
           ],
         });
       }
 
-      const travelDate = new Date(date);
       const today = new Date();
       today.setHours(0, 0, 0, 0);
 
-      if (travelDate < today) {
+      if (new Date(isoDate) < today) {
         return mcpResponse(id, {
           content: [
             {
               type: "text",
-              text: "Travel date cannot be in the past. Please select a future date.",
+              text: `Travel date (${formatReadable(isoDate)}) is in the past. Please select a future date.`,
             },
           ],
         });
       }
 
-      const result: FlightSearchResult = await fetchFlights(from, to, date, adults, children, cabinClass, fromEntityId, toEntityId);
+      const cacheKey = makeCacheKey(
+        from,
+        to,
+        isoDate,
+        adults,
+        children,
+        cabinClass,
+      );
+
+      if (searchCache?.key === cacheKey) {
+        console.log(`[cache hit] ${cacheKey}`);
+        return mcpResponse(id, {
+          content: [{ type: "text", text: searchCache.markdown }],
+        });
+      }
+
+      console.log(`[cache miss] fetching: ${cacheKey}`);
+
+      const result: FlightSearchResult = await fetchFlights(
+        from,
+        to,
+        isoDate,
+        adults,
+        children,
+        cabinClass,
+        fromEntityId,
+        toEntityId,
+      );
+
       const flights = sortFlights(result.flights);
       const resolvedFromEntityId = result.fromEntityId ?? fromEntityId;
       const resolvedToEntityId = result.toEntityId ?? toEntityId;
@@ -203,13 +305,24 @@ export async function POST(req: NextRequest) {
           content: [
             {
               type: "text",
-              text: `No flights found for ${from} to ${to} on ${date}. Try a different date.\n\n[Search on FareFirst](${BOOKING_URL})`,
+              text: `No flights found for ${from} to ${to} on ${isoDate}. Try a different date.\n\n[Search on FareFirst](${BOOKING_URL})`,
             },
           ],
         });
       }
 
-      const markdown = formatFlightsAsMarkdown(flights, from, to, date, resolvedFromEntityId, resolvedToEntityId, adults, children);
+      const markdown = formatFlightsAsMarkdown(
+        flights,
+        from,
+        to,
+        isoDate,
+        resolvedFromEntityId,
+        resolvedToEntityId,
+        adults,
+        children,
+      );
+
+      searchCache = { key: cacheKey, result, markdown };
 
       return mcpResponse(id, {
         content: [{ type: "text", text: markdown }],
@@ -224,7 +337,8 @@ export async function POST(req: NextRequest) {
     return mcpResponse(null, {
       error: {
         code: -32603,
-        message: error instanceof Error ? error.message : "Internal server error",
+        message:
+          error instanceof Error ? error.message : "Internal server error",
       },
     });
   }

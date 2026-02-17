@@ -4,9 +4,13 @@ import {
   BASE_URL,
   IS_LIVE,
   // POLL_MAX_ATTEMPTS,
-  // POLL_INTERVAL_MS,  
+  // POLL_INTERVAL_MS,
 } from "./types";
-import { parseDateToAPIFormat, getDefaultDate, extractData } from "./flightUtils";
+import {
+  parseDateToAPIFormat,
+  getDefaultDate,
+  extractData,
+} from "./flightUtils";
 
 export interface AirportSuggestion {
   entityId: string;
@@ -14,7 +18,7 @@ export interface AirportSuggestion {
   name: string;
   cityName: string;
   countryName: string;
-  type: string; 
+  type: string;
 }
 
 export interface FlightSearchResult {
@@ -26,7 +30,7 @@ export interface FlightSearchResult {
 type PlaceId = { iata: string } | { entityId: string };
 
 export async function resolveAirport(
-  searchTerm: string
+  searchTerm: string,
 ): Promise<AirportSuggestion | null> {
   try {
     const res = await fetch(
@@ -48,7 +52,7 @@ export async function resolveAirport(
           limit: 1,
           isDestination: true,
         }),
-      }
+      },
     );
 
     if (!res.ok) {
@@ -111,7 +115,6 @@ function createSearchPayload(
     },
   };
 }
-
 
 // TODO: Re-enable polling when ready.
 // Max 3 attempts, each spaced POLL_INTERVAL_MS apart (default 60 s) → 3-min cap.
@@ -184,7 +187,7 @@ function fallbackFlights(from: string, to: string): FlightSummary[] {
       arrivalTime: "09:55",
       stops: "Direct",
       stopCount: 0,
-      deeplink:"https://farefirst.com"
+      deeplink: "https://farefirst.com",
     },
     {
       tripType: "One Stop",
@@ -199,8 +202,7 @@ function fallbackFlights(from: string, to: string): FlightSummary[] {
       stops: "1 stop",
       stopCount: 1,
       layover: "6h 25m layover in DEL",
-            deeplink:"https://farefirst.com"
-
+      deeplink: "https://farefirst.com",
     },
   ];
 }
@@ -218,8 +220,12 @@ export async function fetchFlights(
   try {
     console.log("=== Flight Search Request ===");
     console.log(`From: ${from} | To: ${to} | Date: ${date}`);
-    console.log(`Adults: ${adults} | Children: ${children} | Cabin: ${cabinClass}`);
-    console.log(`EntityIds provided — from: ${fromEntityId ?? "none"}, to: ${toEntityId ?? "none"}`);
+    console.log(
+      `Adults: ${adults} | Children: ${children} | Cabin: ${cabinClass}`,
+    );
+    console.log(
+      `EntityIds provided — from: ${fromEntityId ?? "none"}, to: ${toEntityId ?? "none"}`,
+    );
 
     let resolvedFromEntityId = fromEntityId;
     let resolvedToEntityId = toEntityId;
@@ -229,9 +235,13 @@ export async function fetchFlights(
       const origin = await resolveAirport(from);
       if (origin) {
         resolvedFromEntityId = origin.entityId;
-        console.log(`Origin resolved → ${origin.name} (${origin.iataCode}) | entityId: ${origin.entityId}`);
+        console.log(
+          `Origin resolved → ${origin.name} (${origin.iataCode}) | entityId: ${origin.entityId}`,
+        );
       } else {
-        console.warn(`Could not resolve origin "${from}", falling back to IATA`);
+        console.warn(
+          `Could not resolve origin "${from}", falling back to IATA`,
+        );
       }
     }
 
@@ -240,25 +250,43 @@ export async function fetchFlights(
       const destination = await resolveAirport(to);
       if (destination) {
         resolvedToEntityId = destination.entityId;
-        console.log(`Destination resolved → ${destination.name} (${destination.iataCode}) | entityId: ${destination.entityId}`);
+        console.log(
+          `Destination resolved → ${destination.name} (${destination.iataCode}) | entityId: ${destination.entityId}`,
+        );
       } else {
-        console.warn(`Could not resolve destination "${to}", falling back to IATA`);
+        console.warn(
+          `Could not resolve destination "${to}", falling back to IATA`,
+        );
       }
     }
 
-    console.log(`Final entityIds — from: ${resolvedFromEntityId ?? from}, to: ${resolvedToEntityId ?? to}`);
+    console.log(
+      `Final entityIds — from: ${resolvedFromEntityId ?? from}, to: ${resolvedToEntityId ?? to}`,
+    );
     console.log("=============================");
 
-    const payload = createSearchPayload(from, to, date, adults, children, cabinClass, resolvedFromEntityId, resolvedToEntityId);
+    const payload = createSearchPayload(
+      from,
+      to,
+      date,
+      adults,
+      children,
+      cabinClass,
+      resolvedFromEntityId,
+      resolvedToEntityId,
+    );
 
-    const searchRes = await fetch(`${BASE_URL}/live/search/create?live=${IS_LIVE}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": "SSZbsPSLJKxYqHCQDHvOG6EnhZZFG4TTSI",
+    const searchRes = await fetch(
+      `${BASE_URL}/live/search/create?live=${IS_LIVE}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": "SSZbsPSLJKxYqHCQDHvOG6EnhZZFG4TTSI",
+        },
+        body: JSON.stringify(payload),
       },
-      body: JSON.stringify(payload),
-    });
+    );
 
     if (!searchRes.ok) {
       const errorText = await searchRes.text().catch(() => "");
@@ -291,7 +319,7 @@ export async function fetchFlights(
     // }
 
     console.log(`Final flight count: ${initialFlights.length}`);
-    
+
     return {
       flights: initialFlights,
       fromEntityId: resolvedFromEntityId,
