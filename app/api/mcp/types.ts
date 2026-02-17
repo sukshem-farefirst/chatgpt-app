@@ -11,6 +11,7 @@ export interface FlightSummary {
   stopCount: number;
   layover?: string;
   priceRaw: number; 
+  deeplink: string;
 }
 
 export interface SearchResponse {

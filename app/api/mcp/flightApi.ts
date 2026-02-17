@@ -184,6 +184,7 @@ function fallbackFlights(from: string, to: string): FlightSummary[] {
       arrivalTime: "09:55",
       stops: "Direct",
       stopCount: 0,
+      deeplink:"https://farefirst.com"
     },
     {
       tripType: "One Stop",
@@ -198,6 +199,8 @@ function fallbackFlights(from: string, to: string): FlightSummary[] {
       stops: "1 stop",
       stopCount: 1,
       layover: "6h 25m layover in DEL",
+            deeplink:"https://farefirst.com"
+
     },
   ];
 }
@@ -288,6 +291,7 @@ export async function fetchFlights(
     // }
 
     console.log(`Final flight count: ${initialFlights.length}`);
+    
     return {
       flights: initialFlights,
       fromEntityId: resolvedFromEntityId,

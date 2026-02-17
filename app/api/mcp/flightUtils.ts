@@ -1,4 +1,10 @@
-import { FlightSummary, SearchResponse, DateObj, BOOKING_URL, RESULTS_URL } from "./types";
+import {
+  FlightSummary,
+  SearchResponse,
+  DateObj,
+  BOOKING_URL,
+  RESULTS_URL,
+} from "./types";
 
 export function getDefaultDate(): string {
   const date = new Date();
@@ -26,7 +32,7 @@ export function formatDuration(minutes: number): string {
 export function extractData(
   searchData: SearchResponse,
   from: string,
-  to: string
+  to: string,
 ): FlightSummary[] {
   const flights: FlightSummary[] = [];
 
@@ -63,6 +69,7 @@ export function extractData(
 
       const carrierId = leg.marketingCarrierIds?.[0];
       const carrier = carrierId ? carriers[carrierId] : null;
+      const deeplink = pricingOption?.items?.[0]?.deepLink;
       const airlineName =
         carrier?.name?.trim() ||
         carrier?.displayCode?.trim() ||
@@ -70,8 +77,12 @@ export function extractData(
         (carrierId ? String(carrierId) : null) ||
         "Unknown Airline";
 
-      const originPlace = leg.originPlaceId ? places?.[leg.originPlaceId] : null;
-      const destPlace = leg.destinationPlaceId ? places?.[leg.destinationPlaceId] : null;
+      const originPlace = leg.originPlaceId
+        ? places?.[leg.originPlaceId]
+        : null;
+      const destPlace = leg.destinationPlaceId
+        ? places?.[leg.destinationPlaceId]
+        : null;
       const originCode = originPlace?.iata ?? from;
       const destCode = destPlace?.iata ?? to;
 
@@ -81,7 +92,9 @@ export function extractData(
 
       const stopCount: number = leg.stopCount ?? 0;
       const stopsText =
-        stopCount === 0 ? "Direct" : `${stopCount} stop${stopCount > 1 ? "s" : ""}`;
+        stopCount === 0
+          ? "Direct"
+          : `${stopCount} stop${stopCount > 1 ? "s" : ""}`;
 
       let layoverText: string | undefined;
 
@@ -94,10 +107,18 @@ export function extractData(
           const depDT = secondSeg.departureDateTime;
 
           const arrMs = new Date(
-            arrDT.year, arrDT.month - 1, arrDT.day, arrDT.hour, arrDT.minute
+            arrDT.year,
+            arrDT.month - 1,
+            arrDT.day,
+            arrDT.hour,
+            arrDT.minute,
           ).getTime();
           const depMs = new Date(
-            depDT.year, depDT.month - 1, depDT.day, depDT.hour, depDT.minute
+            depDT.year,
+            depDT.month - 1,
+            depDT.day,
+            depDT.hour,
+            depDT.minute,
           ).getTime();
 
           const layoverMins = Math.floor((depMs - arrMs) / 60_000);
@@ -123,10 +144,13 @@ export function extractData(
         stops: stopsText,
         stopCount,
         layover: layoverText,
+        deeplink: deeplink,
       });
     }
 
-    console.log(`Extracted ${flights.length} flights from ${itineraryIds.length} itineraries`);
+    console.log(
+      `Extracted ${flights.length} flights from ${itineraryIds.length} itineraries`,
+    );
     return flights;
   } catch (error) {
     console.error("Error extracting flight data:", error);
@@ -207,7 +231,7 @@ function renderFlightRow(flight: FlightSummary): string {
     ? `${flight.stops} (${flight.layover})`
     : flight.stops;
 
-  const bookLink = `[Book](${BOOKING_URL})`;
+  const bookLink = `[Book](${flight.deeplink})`;
 
   return `| ${flight.airline} | ${flight.departureTime} | ${flight.arrivalTime} | ${flight.duration} | ${stops} | ${flight.price} | ${bookLink} |`;
 }
