@@ -1,3 +1,4 @@
+import { log } from "console";
 import { NextRequest, NextResponse } from "next/server";
 
 interface FlightSummary {
@@ -307,42 +308,42 @@ async function fetchFlights(
   }
 }
 
-// function formatFlightsAsMarkdown(flights: FlightSummary[]): string {
-//   const bookingUrl = "https://farefirst.com";
-
-//   return flights
-//     .map((flight) => {
-//       return `
-// ###  ${flight.airline}
-
-// **${flight.departureTime}** --> **${flight.arrivalTime}**
-// **${flight.from}** → **${flight.to}** • ${flight.duration}
-
-// ${flight.stops} | Economy Class
-
-//  **${flight.price}**
-
-// [**Book This Flight**](${bookingUrl})
-
-// ---
-// `.trim();
-//     })
-//     .join("\n\n");
-// }
-
 function formatFlightsAsMarkdown(flights: FlightSummary[]): string {
-  const header = `
-| Airline | Departure | Arrival | Duration | Stops | Price | Book |
-|---------|-----------|---------|----------|-------|-------|-------|
-`;
+  const bookingUrl = "https://farefirst.com";
 
-  const rows = flights.map((flight, index) => {
-    const bookLink = `[Book](https://farefirst.com)`;
-    return `| **${flight.airline}** | ${flight.departureTime} | ${flight.arrivalTime} | ${flight.duration} | ${flight.stops} | **${flight.price}** | ${bookLink} |`;
-  }).join("\n");
+  return flights
+    .map((flight) => {
+      return `
+###  ${flight.airline}
 
-  return header + rows;
+**${flight.departureTime}** --> **${flight.arrivalTime}**
+**${flight.from}** → **${flight.to}** • ${flight.duration}
+
+${flight.stops} | Economy Class
+
+ **${flight.price}**
+
+[**Book This Flight**](${bookingUrl})
+
+---
+`.trim();
+    })
+    .join("\n\n");
 }
+
+// function formatFlightsAsMarkdown(flights: FlightSummary[]): string {
+//   const header = `
+// | Airline | Departure | Arrival | Duration | Stops | Price | Book |
+// |---------|-----------|---------|----------|-------|-------|-------|
+// `;
+
+//   const rows = flights.map((flight, index) => {
+//     const bookLink = `[Book](https://farefirst.com)`;
+//     return `| **${flight.airline}** | ${flight.departureTime} | ${flight.arrivalTime} | ${flight.duration} | ${flight.stops} | **${flight.price}** | ${bookLink} |`;
+//   }).join("\n");
+
+//   return header + rows;
+// }
 
 export async function POST(req: NextRequest) {
   try {
@@ -445,7 +446,7 @@ export async function POST(req: NextRequest) {
         return mcpResponse(id, {
           content: [
             {
-              type: "text",
+              type: "text/markdown",
               text: `Travel date cannot be in the past. Please select a future date.`,
             },
           ],
@@ -453,6 +454,10 @@ export async function POST(req: NextRequest) {
       }
 
       const flights = await fetchFlights(from, to, date);
+
+      flights.map((flight)=>{
+        console.log(flight.airline, flight.price, flight.duration)
+      })
 
     //   return mcpResponse(id, {
     //     content: [
@@ -471,29 +476,25 @@ export async function POST(req: NextRequest) {
     //               departureTime: flight.departureTime,
     //               arrivalTime: flight.arrivalTime,
     //               duration: flight.duration,
-    //               stops: flight.stops,
-    //               price: flight.price,
     //               bookingUrl: "https://farefirst.com",
     //             })),
     //           },
-    //           null,
-    //           2,
     //         ),
     //       },
     //     ],
     //   });
     // }
 
-      const header = `#  Available Flights\n\n**${from} → ${to}** • ${date}\n\n${flights.length} flights found\n\n`;
+      const header = `#  Available Flights\n\n**${from} → ${to}** • ${date}\n\n${flights.length} [Visit FareFirst.com](https://farefirst.com) flights found\n\n`;
       const flightCards = formatFlightsAsMarkdown(flights);
       
-      const footer = `\n\n---\n\n **Tip**: Prices may vary. Book early for the best deals!\n\n[Visit FareFirst.com](https://farefirst.com) for more options.`;
+      const footer = `(https://farefirst.com)`;
 
       return mcpResponse(id, {
         content: [
           {
             type: "text",
-            text: header + flightCards ,
+            text: header + flightCards + footer ,
           },
         ],
       });
