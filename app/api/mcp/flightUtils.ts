@@ -1,10 +1,4 @@
-import {
-  FlightSummary,
-  SearchResponse,
-  DateObj,
-  BOOKING_URL,
-  RESULTS_URL,
-} from "./types";
+import { FlightSummary, SearchResponse, DateObj, RESULTS_URL } from "./types";
 
 export function getDefaultDate(): string {
   const date = new Date();
@@ -20,13 +14,63 @@ export function parseDateToAPIFormat(dateStr: string): DateObj {
 export function formatTime(datetime: any): string {
   if (!datetime) return "N/A";
   const { hour, minute } = datetime;
-  return `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
+  return `${hour.toString().padStart(2, "0")}:${minute
+    .toString()
+    .padStart(2, "0")}`;
+}
+
+function formatTime24to12(time: string): string {
+  const [hourStr, minute] = time.split(":");
+  const hour = parseInt(hourStr, 10);
+  const period = hour >= 12 ? "pm" : "am";
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12}:${minute} ${period}`;
 }
 
 export function formatDuration(minutes: number): string {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
   return `${hours}h ${mins}m`;
+}
+
+const CURRENCY_SYMBOL: Record<string, string> = {
+  INR: "₹",
+  USD: "$",
+  GBP: "£",
+  EUR: "€",
+  AED: "AED",
+  AUD: "A$",
+  CAD: "C$",
+  SGD: "S$",
+  JPY: "¥",
+  CNY: "¥",
+};
+
+const COUNTRY_TO_CURRENCY: Record<string, string> = {
+  IN: "INR",
+  US: "USD",
+  GB: "GBP",
+  AE: "AED",
+  AU: "AUD",
+  CA: "CAD",
+  SG: "SGD",
+  JP: "JPY",
+  CN: "CNY",
+};
+
+function getCurrencyFromCountry(userCountry?: string): string {
+  if (!userCountry) return "USD";
+  return COUNTRY_TO_CURRENCY[userCountry.toUpperCase()] ?? "USD";
+}
+
+export function formatPrice(milliAmount: number, currency: string): string {
+  const amount = milliAmount / 1000;
+  const symbol = CURRENCY_SYMBOL[currency] ?? `${currency} `;
+  const formatted = amount.toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+  return `${symbol}${formatted}`;
 }
 
 export function extractData(
@@ -40,10 +84,7 @@ export function extractData(
     const { itineraries, legs, carriers, places, segments } =
       searchData.content?.results ?? {};
 
-    if (!itineraries || !legs || !carriers) {
-      console.error("Missing required data fields in API response");
-      return [];
-    }
+    if (!itineraries || !legs || !carriers) return [];
 
     const itineraryIds = Object.keys(itineraries).slice(0, 10);
 
@@ -60,21 +101,19 @@ export function extractData(
       const priceUnit = pricingOption?.price?.unit;
 
       let priceRaw = 0;
-      let formattedPrice = "Price N/A";
 
       if (priceAmount && priceUnit === "PRICE_UNIT_MILLI") {
-        priceRaw = parseInt(priceAmount) / 1000;
-        formattedPrice = `Rs. ${priceRaw.toLocaleString("en-IN")}`;
+        priceRaw = parseInt(priceAmount); 
       }
 
       const carrierId = leg.marketingCarrierIds?.[0];
       const carrier = carrierId ? carriers[carrierId] : null;
       const deeplink = pricingOption?.items?.[0]?.deepLink;
+
       const airlineName =
         carrier?.name?.trim() ||
         carrier?.displayCode?.trim() ||
         carrier?.iata?.trim() ||
-        (carrierId ? String(carrierId) : null) ||
         "Unknown Airline";
 
       const originPlace = leg.originPlaceId
@@ -83,6 +122,7 @@ export function extractData(
       const destPlace = leg.destinationPlaceId
         ? places?.[leg.destinationPlaceId]
         : null;
+
       const originCode = originPlace?.iata ?? from;
       const destCode = destPlace?.iata ?? to;
 
@@ -113,6 +153,7 @@ export function extractData(
             arrDT.hour,
             arrDT.minute,
           ).getTime();
+
           const depMs = new Date(
             depDT.year,
             depDT.month - 1,
@@ -121,13 +162,17 @@ export function extractData(
             depDT.minute,
           ).getTime();
 
-          const layoverMins = Math.floor((depMs - arrMs) / 60_000);
+          const layoverMins = Math.floor((depMs - arrMs) / 60000);
+
           const layoverPlace = firstSeg.destinationPlaceId
             ? places?.[firstSeg.destinationPlaceId]
             : null;
+
           const layoverCity = layoverPlace?.iata ?? "";
 
-          layoverText = `${formatDuration(layoverMins)} layover in ${layoverCity}`;
+          layoverText = `${formatDuration(
+            layoverMins,
+          )} layover in ${layoverCity}`;
         }
       }
 
@@ -137,23 +182,19 @@ export function extractData(
         duration,
         from: originCode,
         to: destCode,
-        price: formattedPrice,
+        price: "",
         priceRaw,
         departureTime,
         arrivalTime,
         stops: stopsText,
         stopCount,
         layover: layoverText,
-        deeplink: deeplink,
+        deeplink,
       });
     }
 
-    console.log(
-      `Extracted ${flights.length} flights from ${itineraryIds.length} itineraries`,
-    );
     return flights;
-  } catch (error) {
-    console.error("Error extracting flight data:", error);
+  } catch {
     return [];
   }
 }
@@ -175,8 +216,11 @@ export function formatFlightsAsMarkdown(
   toEntityId?: string,
   adults: number = 1,
   children: number = 0,
+  userCountry?: string,
 ): string {
   const dateCompact = date.replace(/-/g, "");
+  const currency = getCurrencyFromCountry(userCountry);
+
   const directFlights = flights.filter((f) => f.stopCount === 0);
   const stopFlights = flights
     .filter((f) => f.stopCount > 0)
@@ -192,14 +236,14 @@ export function formatFlightsAsMarkdown(
   if (directFlights.length > 0) {
     lines.push(`### Best Flights (Direct)`, ``);
     lines.push(...tableHeader);
-    directFlights.forEach((f) => lines.push(renderFlightRow(f)));
+    directFlights.forEach((f) => lines.push(renderFlightRow(f, currency)));
     lines.push(``);
   }
 
   if (stopFlights.length > 0) {
     lines.push(`### Cheapest Flights (1 Stop)`, ``);
     lines.push(...tableHeader);
-    stopFlights.forEach((f) => lines.push(renderFlightRow(f)));
+    stopFlights.forEach((f) => lines.push(renderFlightRow(f, currency)));
     lines.push(``);
   }
 
@@ -213,27 +257,16 @@ export function formatFlightsAsMarkdown(
   return lines.join("\n");
 }
 
-function renderFlightRow(flight: FlightSummary): string {
+function renderFlightRow(flight: FlightSummary, currency: string): string {
   const stops = flight.layover
     ? `${flight.stops} (${flight.layover})`
     : flight.stops;
 
-  const parts: string[] = flight.arrivalTime.split(":");
+  const departure = formatTime24to12(flight.departureTime);
+  const arrival = formatTime24to12(flight.arrivalTime);
+  const formattedPrice = formatPrice(flight.priceRaw, currency);
 
-  const hourString: string = parts[0];
-  const minString: string = parts[1];
-  const hourInteger: number = parseInt(hourString, 10);
-  const period = hourInteger >= 12 ? "pm" : "am";
-  const arrival = hourInteger + ":" + minString + " " + period;
+  const bookLink = `[Book](Deeplink)`;
 
-  const parts1: string[] = flight.departureTime.split(":");
-
-  const hourString1: string = parts1[0];
-  const minString1: string = parts1[1];
-  const hourInteger1: number = parseInt(hourString1, 10);
-  const period1 = hourInteger1 >= 12 ? "pm" : "am";
-  const departure = hourInteger1 + ":" + minString1 + " " + period1;
-  const bookLink = `[Book]()`;
-
-  return `| ${flight.airline} | ${departure} | ${arrival} | ${flight.duration} | ${stops} | ${flight.price} | ${bookLink} |`;
+  return `| ${flight.airline} | ${departure} | ${arrival} | ${flight.duration} | ${stops} | ${formattedPrice} | ${bookLink} |`;
 }
