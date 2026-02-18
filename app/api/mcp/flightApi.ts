@@ -172,6 +172,7 @@ function fallbackFlights(from: string, to: string): FlightSummary[] {
       stops: "Direct",
       stopCount: 0,
       deeplink: "https://farefirst.com",
+      layovers:[]
     },
     {
       tripType: "One Stop",
@@ -187,6 +188,7 @@ function fallbackFlights(from: string, to: string): FlightSummary[] {
       stopCount: 1,
       layover: "6h 25m layover in DEL",
       deeplink: "https://farefirst.com",
+      layovers:[]
     },
   ];
 }

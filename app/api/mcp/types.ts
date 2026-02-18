@@ -12,6 +12,7 @@ export interface FlightSummary {
   layover?: string;
   priceRaw: number; 
   deeplink: string;
+  layovers: string[];
 }
 
 export interface SearchResponse {

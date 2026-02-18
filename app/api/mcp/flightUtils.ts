@@ -79,6 +79,7 @@ export function extractData(
   to: string,
 ): FlightSummary[] {
   const flights: FlightSummary[] = [];
+  let layovers: string[] = [];
 
   try {
     const { itineraries, legs, carriers, places, segments } =
@@ -103,7 +104,7 @@ export function extractData(
       let priceRaw = 0;
 
       if (priceAmount && priceUnit === "PRICE_UNIT_MILLI") {
-        priceRaw = parseInt(priceAmount); 
+        priceRaw = parseInt(priceAmount);
       }
 
       const carrierId = leg.marketingCarrierIds?.[0];
@@ -137,42 +138,45 @@ export function extractData(
           : `${stopCount} stop${stopCount > 1 ? "s" : ""}`;
 
       let layoverText: string | undefined;
+      layovers = []; 
 
       if (stopCount > 0 && segments && (leg.segmentIds?.length ?? 0) > 1) {
-        const firstSeg = segments[leg.segmentIds[0]];
-        const secondSeg = segments[leg.segmentIds[1]];
+        for (let i = 0; i < leg.segmentIds.length - 1; i++) {
+          const firstSeg = segments[leg.segmentIds[i]];
+          const secondSeg = segments[leg.segmentIds[i + 1]];
 
-        if (firstSeg && secondSeg) {
-          const arrDT = firstSeg.arrivalDateTime;
-          const depDT = secondSeg.departureDateTime;
+          if (firstSeg && secondSeg) {
+            const arrDT = firstSeg.arrivalDateTime;
+            const depDT = secondSeg.departureDateTime;
 
-          const arrMs = new Date(
-            arrDT.year,
-            arrDT.month - 1,
-            arrDT.day,
-            arrDT.hour,
-            arrDT.minute,
-          ).getTime();
+            const arrMs = new Date(
+              arrDT.year,
+              arrDT.month - 1,
+              arrDT.day,
+              arrDT.hour,
+              arrDT.minute,
+            ).getTime();
 
-          const depMs = new Date(
-            depDT.year,
-            depDT.month - 1,
-            depDT.day,
-            depDT.hour,
-            depDT.minute,
-          ).getTime();
+            const depMs = new Date(
+              depDT.year,
+              depDT.month - 1,
+              depDT.day,
+              depDT.hour,
+              depDT.minute,
+            ).getTime();
 
-          const layoverMins = Math.floor((depMs - arrMs) / 60000);
+            const layoverMins = Math.floor((depMs - arrMs) / 60000);
 
-          const layoverPlace = firstSeg.destinationPlaceId
-            ? places?.[firstSeg.destinationPlaceId]
-            : null;
+            const layoverPlace = firstSeg.destinationPlaceId
+              ? places?.[firstSeg.destinationPlaceId]
+              : null;
 
-          const layoverCity = layoverPlace?.iata ?? "";
+            const layoverCity = layoverPlace?.iata ?? "Unknown City";
 
-          layoverText = `${formatDuration(
-            layoverMins,
-          )} layover in ${layoverCity}`;
+            layovers.push(
+              `${formatDuration(layoverMins)} layover at ${layoverCity}`,
+            );
+          }
         }
       }
 
@@ -190,6 +194,7 @@ export function extractData(
         stopCount,
         layover: layoverText,
         deeplink,
+        layovers, 
       });
     }
 
@@ -258,9 +263,17 @@ export function formatFlightsAsMarkdown(
 }
 
 function renderFlightRow(flight: FlightSummary, currency: string): string {
-  const stops = flight.layover
-    ? `${flight.stops} (${flight.layover})`
-    : flight.stops;
+  const stops =
+    flight.stopCount === 0
+      ? "Direct"
+      : `${flight.stopCount} stop${flight.stopCount > 1 ? "s" : ""}`;
+
+  const layovers =
+    flight.layovers && flight.layovers.length > 0
+      ? `(${flight.layovers.join(", ")})`
+      : "";
+
+  const stopsWithLayovers = stops + (layovers ? ` ${layovers}` : "");
 
   const departure = formatTime24to12(flight.departureTime);
   const arrival = formatTime24to12(flight.arrivalTime);
@@ -268,5 +281,5 @@ function renderFlightRow(flight: FlightSummary, currency: string): string {
 
   const bookLink = `[Book](Deeplink)`;
 
-  return `| ${flight.airline} | ${departure} | ${arrival} | ${flight.duration} | ${stops} | ${formattedPrice} | ${bookLink} |`;
+  return `| ${flight.airline} | ${departure} | ${arrival} | ${flight.duration} | ${stopsWithLayovers} | ${formattedPrice} | ${bookLink} |`;
 }

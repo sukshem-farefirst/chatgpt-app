@@ -46,22 +46,19 @@ function formatReadable(iso: string): string {
   });
 }
 
-function detectUserCountry(req: NextRequest, fallback: string = "US"): string {
-  try {
-    const langHeader = req.headers.get("accept-language");
-    if (langHeader) {
-      const lang = langHeader.split(",")[0];
-      const parts = lang.split("-");
-      if (parts[1]) return parts[1].toUpperCase();
-    }
-  } catch {}
-  return fallback;
-}
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { method, id, params } = body;
+
+    const userLocation = body?.metadata?.user?.location;
+
+    const userCountry =
+      userLocation?.country ??
+      body?.metadata?.user?.locale?.split("-")[1] ??
+      "US";
+
+    console.log("YY " + userCountry);
 
     if (method === "initialize") {
       return mcpResponse(id, {
@@ -90,11 +87,6 @@ export async function POST(req: NextRequest) {
               required: ["searchTerm"],
               properties: {
                 searchTerm: { type: "string" },
-                userCountry: {
-                  type: "string",
-                  description:
-                    "User's country (ISO 2-letter code, e.g., IN, US, GB). If not provided, will be detected automatically.",
-                },
               },
             },
           },
@@ -124,11 +116,6 @@ export async function POST(req: NextRequest) {
                 },
                 fromEntityId: { type: "string" },
                 toEntityId: { type: "string" },
-                userCountry: {
-                  type: "string",
-                  description:
-                    "User's country (ISO 2-letter code, e.g., IN, US, GB). If not provided, will be detected automatically.",
-                },
               },
             },
           },
@@ -137,13 +124,11 @@ export async function POST(req: NextRequest) {
     }
 
     if (method === "tools/call" && params?.name === "resolve_airport") {
-      const { searchTerm, userCountry: rawUserCountry } =
+      const { searchTerm, userCountry: UserCountry } =
         params.arguments ?? {};
-      const userCountry = rawUserCountry ?? detectUserCountry(req);      
+      const userCountry = UserCountry;
 
-      console.log(
-        `userCountry: ${userCountry}"}`,
-      );
+      console.log(`userCountry: ${userCountry}"}`);
 
       if (!searchTerm) {
         return mcpResponse(id, {
@@ -194,11 +179,9 @@ export async function POST(req: NextRequest) {
         userCountry: rawUserCountry,
       } = params.arguments ?? {};
 
-      const userCountry = rawUserCountry ?? detectUserCountry(req);
+      const userCountry = rawUserCountry;
 
-      console.log(
-        `userCountry: ${userCountry}"}`,
-      );
+      console.log(`userCountry: ${userCountry}"}`);
 
       if (!from || !to || !date) {
         return mcpResponse(id, {
