@@ -153,6 +153,15 @@ export async function resolveAirportWithLogic(
     return { status: "resolved", airport: allPlaces[0] };
   }
 
+  const exactIataMatch = allPlaces.find(
+    (p) =>
+      p.iataCode.toUpperCase() === searchTerm.trim().toUpperCase() &&
+      p.type === "PLACE_TYPE_AIRPORT",
+  );
+  if (exactIataMatch) {
+    return { status: "resolved", airport: exactIataMatch };
+  }
+
   const airportOnlyPlaces = deduplicateByEntityId(
     allPlaces.filter((p) => p.type !== "PLACE_TYPE_CITY"),
   );

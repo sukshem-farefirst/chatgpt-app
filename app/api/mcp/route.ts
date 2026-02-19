@@ -83,13 +83,12 @@ function buildAmbiguousBlock(
   const lines = airports
     .map((a) => `• ${a.name} (${a.iataCode}) — ${a.cityName}, ${a.countryName}`)
     .join("\n");
-  return `There are multiple ${label} airports for "${term}" ✈️\n${lines}`;
+  return `There are multiple ${label} airports for "${term}" \n${lines}`;
 }
 
 function resolveUserCountry(body: Record<string, unknown>): string {
   const metaLocation = (body?.metadata as any)?.user?.location;
   if (metaLocation?.country) {
-    console.log(`[location] from ChatGPT metadata: ${metaLocation.country}`);
     return metaLocation.country as string;
   }
 
@@ -97,12 +96,10 @@ function resolveUserCountry(body: Record<string, unknown>): string {
   if (metaLocale) {
     const fromLocale = (metaLocale as string).split("-")[1];
     if (fromLocale) {
-      console.log(`[location] from ChatGPT locale: ${fromLocale}`);
       return fromLocale;
     }
   }
 
-  console.log("[location] fallback: US");
   return "US"; 
 }
 
@@ -112,7 +109,6 @@ export async function POST(req: NextRequest) {
     const { method, id, params } = body;
 
     const userCountry = resolveUserCountry(body);
-    console.log(`[userCountry] ${userCountry}`);
 
     if (method === "initialize") {
       return mcpResponse(id, {

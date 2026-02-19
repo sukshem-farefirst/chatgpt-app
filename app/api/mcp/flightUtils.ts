@@ -279,7 +279,7 @@ function renderFlightRow(flight: FlightSummary, currency: string): string {
   const arrival = formatTime24to12(flight.arrivalTime);
   const formattedPrice = formatPrice(flight.priceRaw, currency);
 
-  const bookLink = `[Book](Deeplink)`;
+  const bookLink = `[Book](${flight.deeplink})`;
 
   return `| ${flight.airline} | ${departure} | ${arrival} | ${flight.duration} | ${stopsWithLayovers} | ${formattedPrice} | ${bookLink} |`;
 }
