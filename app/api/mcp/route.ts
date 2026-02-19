@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { fetchFlights, resolveAirport, FlightSearchResult } from "./flightApi";
-import { formatFlightsAsMarkdown, sortFlights } from "./flightUtils";
+import { formatFlightsAsMCP, sortFlights } from "./flightUtils";
 import { RESULTS_URL } from "./types";
 
 interface CacheEntry {
@@ -124,9 +124,9 @@ export async function POST(req: NextRequest) {
     }
 
     if (method === "tools/call" && params?.name === "resolve_airport") {
-      const { searchTerm, userCountry: UserCountry } =
+      const { searchTerm, userCountry: rawUserCountry } =
         params.arguments ?? {};
-      const userCountry = UserCountry;
+      const userCountry = rawUserCountry;
 
       console.log(`userCountry: ${userCountry}"}`);
 
@@ -254,26 +254,9 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      const markdown = formatFlightsAsMarkdown(
-        flights,
-        from,
-        to,
-        isoDate,
-        resolvedFromEntityId,
-        resolvedToEntityId,
-        adults,
-        children,
-        userCountry,
-      );
-
-      searchCache = { key: cacheKey, result, markdown };
-
-      return mcpResponse(id, { content: [{ type: "text", text: markdown }] });
+      const content = formatFlightsAsMCP(flights, userCountry);
+      return mcpResponse(id, { content });
     }
-
-    return mcpResponse(id, {
-      error: { code: -32601, message: "Method not found" },
-    });
   } catch (error) {
     console.error("MCP Server Error:", error);
     return mcpResponse(null, {
