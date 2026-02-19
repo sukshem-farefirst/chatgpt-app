@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchFlights, resolveAirport, FlightSearchResult } from "./flightApi";
+import {
+  fetchFlights,
+  resolveAirportWithLogic,
+  AirportSuggestion,
+  FlightSearchResult,
+} from "./flightApi";
 import { formatFlightsAsMarkdown, sortFlights } from "./flightUtils";
 import { RESULTS_URL } from "./types";
 
@@ -9,7 +14,24 @@ interface CacheEntry {
   markdown: string;
 }
 
+interface PendingSession {
+  from: string;
+  to: string;
+  date: string;
+  adults: number;
+  children: number;
+  cabinClass: string;
+  userCountry: string;
+  fromCandidates: AirportSuggestion[] | null;
+  toCandidates: AirportSuggestion[] | null;
+  resolvedFromEntityId?: string;
+  resolvedFromIata?: string;
+  resolvedToEntityId?: string;
+  resolvedToIata?: string;
+}
+
 let searchCache: CacheEntry | null = null;
+let pendingSession: PendingSession | null = null;
 
 function makeCacheKey(
   from: string,
@@ -20,15 +42,7 @@ function makeCacheKey(
   cabinClass: string,
   userCountry: string,
 ): string {
-  return [
-    from,
-    to,
-    isoDate,
-    String(adults),
-    String(children),
-    cabinClass,
-    userCountry,
-  ]
+  return [from, to, isoDate, String(adults), String(children), cabinClass, userCountry]
     .join("|")
     .toUpperCase();
 }
@@ -46,19 +60,59 @@ function formatReadable(iso: string): string {
   });
 }
 
+function matchFromCandidates(
+  input: string,
+  candidates: AirportSuggestion[],
+): AirportSuggestion | null {
+  const q = input.trim().toUpperCase();
+  return (
+    candidates.find(
+      (c) =>
+        c.iataCode.toUpperCase() === q ||
+        c.name.toUpperCase() === q ||
+        c.name.toUpperCase().includes(q),
+    ) ?? null
+  );
+}
+
+function buildAmbiguousBlock(
+  label: string,
+  term: string,
+  airports: AirportSuggestion[],
+): string {
+  const lines = airports
+    .map((a) => `• ${a.name} (${a.iataCode}) — ${a.cityName}, ${a.countryName}`)
+    .join("\n");
+  return `There are multiple ${label} airports for "${term}" ✈️\n${lines}`;
+}
+
+function resolveUserCountry(body: Record<string, unknown>): string {
+  const metaLocation = (body?.metadata as any)?.user?.location;
+  if (metaLocation?.country) {
+    console.log(`[location] from ChatGPT metadata: ${metaLocation.country}`);
+    return metaLocation.country as string;
+  }
+
+  const metaLocale = (body?.metadata as any)?.user?.locale;
+  if (metaLocale) {
+    const fromLocale = (metaLocale as string).split("-")[1];
+    if (fromLocale) {
+      console.log(`[location] from ChatGPT locale: ${fromLocale}`);
+      return fromLocale;
+    }
+  }
+
+  console.log("[location] fallback: US");
+  return "US"; 
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const { method, id, params } = body;
 
-    const userLocation = body?.metadata?.user?.location;
-
-    const userCountry =
-      userLocation?.country ??
-      body?.metadata?.user?.locale?.split("-")[1] ??
-      "US";
-
-    console.log("YY " + userCountry);
+    const userCountry = resolveUserCountry(body);
+    console.log(`[userCountry] ${userCountry}`);
 
     if (method === "initialize") {
       return mcpResponse(id, {
@@ -76,33 +130,29 @@ export async function POST(req: NextRequest) {
       return mcpResponse(id, {
         tools: [
           {
-            name: "resolve_airport",
-            description: [
-              "Resolves a city or airport name to a Skyscanner entityId and IATA code.",
-              "Call this BEFORE search_flights whenever the user provides a city/airport name instead of an IATA code.",
-              "Pass the returned entityId into search_flights as fromEntityId or toEntityId.",
-            ].join(" "),
-            inputSchema: {
-              type: "object",
-              required: ["searchTerm"],
-              properties: {
-                searchTerm: { type: "string" },
-              },
-            },
-          },
-          {
             name: "search_flights",
             description: [
               "Search one-way flights between two airports on a given date.",
-              "RULES: Copy tool result exactly, never summarize, reorder, or change flight cards.",
+              "Pass city names or IATA codes for `from` and `to` — autosuggest runs server-side automatically.",
+              "If either airport is ambiguous the tool returns a list; call it again with selectedFromIata and/or selectedToIata set to the IATA code the user chose.",
+              "The server resolves all entityIds internally. Only executes the flight search when both airports are fully resolved.",
             ].join(" "),
             inputSchema: {
               type: "object",
               required: ["from", "to", "date"],
               properties: {
-                from: { type: "string" },
-                to: { type: "string" },
-                date: { type: "string" },
+                from: {
+                  type: "string",
+                  description: "Origin city name or IATA code (e.g. 'Goa' or 'GOI')",
+                },
+                to: {
+                  type: "string",
+                  description: "Destination city name or IATA code (e.g. 'New York' or 'JFK')",
+                },
+                date: {
+                  type: "string",
+                  description: "Travel date in ISO format YYYY-MM-DD",
+                },
                 adults: { type: "number", minimum: 1, maximum: 9 },
                 children: { type: "number", minimum: 0, maximum: 8 },
                 cabinClass: {
@@ -114,53 +164,18 @@ export async function POST(req: NextRequest) {
                     "CABIN_CLASS_FIRST",
                   ],
                 },
-                fromEntityId: { type: "string" },
-                toEntityId: { type: "string" },
+                selectedFromIata: {
+                  type: "string",
+                  description:
+                    "IATA code the user chose for origin from an ambiguous list (e.g. 'GOI'). Set ONLY after the tool returned an ambiguous origin list.",
+                },
+                selectedToIata: {
+                  type: "string",
+                  description:
+                    "IATA code the user chose for destination from an ambiguous list (e.g. 'JFK'). Set ONLY after the tool returned an ambiguous destination list.",
+                },
               },
             },
-          },
-        ],
-      });
-    }
-
-    if (method === "tools/call" && params?.name === "resolve_airport") {
-      const { searchTerm, userCountry: UserCountry } =
-        params.arguments ?? {};
-      const userCountry = UserCountry;
-
-      console.log(`userCountry: ${userCountry}"}`);
-
-      if (!searchTerm) {
-        return mcpResponse(id, {
-          content: [
-            { type: "text", text: "Missing required field: searchTerm." },
-          ],
-        });
-      }
-
-      const result = await resolveAirport(searchTerm);
-
-      if (!result) {
-        return mcpResponse(id, {
-          content: [
-            {
-              type: "text",
-              text: `Could not resolve airport for "${searchTerm}". Try a more specific name or use the IATA code directly.`,
-            },
-          ],
-        });
-      }
-
-      return mcpResponse(id, {
-        content: [
-          {
-            type: "text",
-            text: [
-              `Resolved: ${result.name} (${result.cityName}, ${result.countryName})`,
-              `entityId: ${result.entityId}`,
-              `iataCode: ${result.iataCode}`,
-              `type: ${result.type}`,
-            ].join("\n"),
           },
         ],
       });
@@ -174,101 +189,171 @@ export async function POST(req: NextRequest) {
         adults = 1,
         children = 0,
         cabinClass = "CABIN_CLASS_ECONOMY",
-        fromEntityId,
-        toEntityId,
+        selectedFromIata,
+        selectedToIata,
         userCountry: rawUserCountry,
       } = params.arguments ?? {};
 
-      const userCountry = rawUserCountry;
-
-      console.log(`userCountry: ${userCountry}"}`);
+      const effectiveUserCountry: string = rawUserCountry ?? userCountry;
 
       if (!from || !to || !date) {
         return mcpResponse(id, {
-          content: [
-            {
-              type: "text",
-              text: "Missing required fields. Please provide `from`, `to`, and `date`.",
-            },
-          ],
+          content: [{ type: "text", text: "Please provide origin, destination, and travel date." }],
         });
       }
 
       const isoDate: string = date;
-
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-
       if (new Date(isoDate) < today) {
         return mcpResponse(id, {
           content: [
             {
               type: "text",
-              text: `Travel date (${formatReadable(isoDate)}) is in the past.`,
+              text: `Travel date (${formatReadable(isoDate)}) is in the past. Please provide a future date.`,
             },
           ],
         });
       }
 
-      const cacheKey = makeCacheKey(
-        from,
-        to,
-        isoDate,
-        adults,
-        children,
-        cabinClass,
-        userCountry,
-      );
-      if (searchCache?.key === cacheKey) {
-        console.log(`cache hit ${cacheKey}`);
+      const session = pendingSession;
+
+      const fromInput = selectedFromIata ?? from;
+      const toInput   = selectedToIata   ?? to;
+
+      let resolvedFromEntityId: string | undefined = session?.resolvedFromEntityId;
+      let resolvedFromIata: string                 = session?.resolvedFromIata ?? from;
+      let fromCandidates: AirportSuggestion[] | null = null;
+      let fromNeedsAutosuggest = true;
+
+      if (session?.fromCandidates) {
+        const match = matchFromCandidates(fromInput, session.fromCandidates);
+        if (match) {
+          resolvedFromEntityId = match.entityId;
+          resolvedFromIata     = match.iataCode;
+          fromNeedsAutosuggest = false;
+          console.log(`[resolve] origin matched from session: ${match.iataCode}`);
+        } else {
+          fromCandidates       = session.fromCandidates;
+          fromNeedsAutosuggest = true;
+        }
+      } else if (session && !session.fromCandidates) {
+        fromNeedsAutosuggest = false;
+      }
+
+      let resolvedToEntityId: string | undefined = session?.resolvedToEntityId;
+      let resolvedToIata: string                 = session?.resolvedToIata ?? to;
+      let toCandidates: AirportSuggestion[] | null = null;
+      let toNeedsAutosuggest = true;
+
+      if (session?.toCandidates) {
+        const match = matchFromCandidates(toInput, session.toCandidates);
+        if (match) {
+          resolvedToEntityId = match.entityId;
+          resolvedToIata     = match.iataCode;
+          toNeedsAutosuggest = false;
+          console.log(`[resolve] destination matched from session: ${match.iataCode}`);
+        } else {
+          toCandidates       = session.toCandidates;
+          toNeedsAutosuggest = true;
+        }
+      } else if (session && !session.toCandidates) {
+        toNeedsAutosuggest = false;
+      }
+
+      if (fromNeedsAutosuggest || toNeedsAutosuggest) {
+        console.log(
+          `[autosuggest] needed — from:${fromNeedsAutosuggest} (${fromInput}) | to:${toNeedsAutosuggest} (${toInput})`,
+        );
+
+        const [originResult, destResult] = await Promise.all([
+          fromNeedsAutosuggest ? resolveAirportWithLogic(fromInput, "IN") : Promise.resolve(null),
+          toNeedsAutosuggest   ? resolveAirportWithLogic(toInput,   "US") : Promise.resolve(null),
+        ]);
+
+        if (originResult !== null) {
+          if (originResult.status === "resolved") {
+            resolvedFromEntityId = originResult.airport.entityId;
+            resolvedFromIata     = originResult.airport.iataCode;
+            fromCandidates       = null;
+          } else if (originResult.status === "ambiguous") {
+            fromCandidates = originResult.airports;
+          } else {
+            return mcpResponse(id, {
+              content: [{
+                type: "text",
+                text: `Could not find origin airport for "${fromInput}". Please try a different name or IATA code.`,
+              }],
+            });
+          }
+        }
+
+        if (destResult !== null) {
+          if (destResult.status === "resolved") {
+            resolvedToEntityId = destResult.airport.entityId;
+            resolvedToIata     = destResult.airport.iataCode;
+            toCandidates       = null;
+          } else if (destResult.status === "ambiguous") {
+            toCandidates = destResult.airports;
+          } else {
+            return mcpResponse(id, {
+              content: [{
+                type: "text",
+                text: `Could not find destination airport for "${toInput}". Please try a different name or IATA code.`,
+              }],
+            });
+          }
+        }
+      }
+
+      if (fromCandidates || toCandidates) {
+        pendingSession = {
+          from,
+          to,
+          date: isoDate,
+          adults,
+          children,
+          cabinClass,
+          userCountry: effectiveUserCountry,
+          fromCandidates,
+          toCandidates,
+          resolvedFromEntityId,
+          resolvedFromIata,
+          resolvedToEntityId,
+          resolvedToIata,
+        };
+
+        const ambiguousBlocks: string[] = [];
+        if (fromCandidates) {
+          ambiguousBlocks.push(buildAmbiguousBlock("origin", fromInput, fromCandidates));
+        }
+        if (toCandidates) {
+          ambiguousBlocks.push(buildAmbiguousBlock("destination", toInput, toCandidates));
+        }
+
+        const suffix =
+          ambiguousBlocks.length > 1
+            ? '\n\nPlease reply with both IATA codes (e.g. "GOI" for Goa, "JFK" for New York).'
+            : "\n\nPlease reply with the IATA code to continue.";
+
         return mcpResponse(id, {
-          content: [{ type: "text", text: searchCache.markdown }],
+          content: [{ type: "text", text: ambiguousBlocks.join("\n\n") + suffix }],
         });
       }
 
-      const result: FlightSearchResult = await fetchFlights(
-        from,
-        to,
-        isoDate,
+      pendingSession = null;
+      return await runSearch({
+        id,
+        from: resolvedFromIata,
+        to: resolvedToIata,
+        date: isoDate,
         adults,
         children,
         cabinClass,
-        fromEntityId,
-        toEntityId,
-        userCountry,
-      );
-
-      const flights = sortFlights(result.flights);
-      const resolvedFromEntityId = result.fromEntityId ?? fromEntityId;
-      const resolvedToEntityId = result.toEntityId ?? toEntityId;
-      const formattedDate = isoDate.replace(/-/g, "");
-
-      if (flights.length === 0) {
-        return mcpResponse(id, {
-          content: [
-            {
-              type: "text",
-              text: `No flights found from ${from} to ${to} on ${isoDate}. Please visit [FareFirst.com](https://farefirst.com) for more options.\n\n[Search on FareFirst](${RESULTS_URL}/${fromEntityId ?? from}-${formattedDate}-${toEntityId ?? to}?adults=${adults}&children=${children}&ages=&cabin_class=Y&trip_type=oneway)`,
-            },
-          ],
-        });
-      }
-
-      const markdown = formatFlightsAsMarkdown(
-        flights,
-        from,
-        to,
-        isoDate,
-        resolvedFromEntityId,
-        resolvedToEntityId,
-        adults,
-        children,
-        userCountry,
-      );
-
-      searchCache = { key: cacheKey, result, markdown };
-
-      return mcpResponse(id, { content: [{ type: "text", text: markdown }] });
+        fromEntityId: resolvedFromEntityId!,
+        toEntityId: resolvedToEntityId!,
+        userCountry: effectiveUserCountry,
+      });
     }
 
     return mcpResponse(id, {
@@ -279,9 +364,82 @@ export async function POST(req: NextRequest) {
     return mcpResponse(null, {
       error: {
         code: -32603,
-        message:
-          error instanceof Error ? error.message : "Internal server error",
+        message: error instanceof Error ? error.message : "Internal server error",
       },
     });
   }
+}
+
+async function runSearch({
+  id,
+  from,
+  to,
+  date,
+  adults,
+  children,
+  cabinClass,
+  fromEntityId,
+  toEntityId,
+  userCountry,
+}: {
+  id: string | number | null;
+  from: string;
+  to: string;
+  date: string;
+  adults: number;
+  children: number;
+  cabinClass: string;
+  fromEntityId: string;
+  toEntityId: string;
+  userCountry: string;
+}) {
+  const cacheKey = makeCacheKey(from, to, date, adults, children, cabinClass, userCountry);
+
+  if (searchCache?.key === cacheKey) {
+    console.log(`[cache] hit: ${cacheKey}`);
+    return mcpResponse(id, { content: [{ type: "text", text: searchCache.markdown }] });
+  }
+
+  const result: FlightSearchResult = await fetchFlights(
+    from,
+    to,
+    date,
+    adults,
+    children,
+    cabinClass,
+    fromEntityId,
+    toEntityId,
+    userCountry,
+  );
+
+  const flights = sortFlights(result.flights);
+  const formattedDate = date.replace(/-/g, "");
+
+  if (flights.length === 0) {
+    return mcpResponse(id, {
+      content: [
+        {
+          type: "text",
+          text:
+            `No flights found from ${from} to ${to} on ${date}.\n\n` +
+            `[Search on FareFirst](${RESULTS_URL}${fromEntityId}-${formattedDate}-${toEntityId}?adults=${adults}&children=${children}&ages=&cabin_class=Y&trip_type=oneway)`,
+        },
+      ],
+    });
+  }
+
+  const markdown = formatFlightsAsMarkdown(
+    flights,
+    from,
+    to,
+    date,
+    fromEntityId,
+    toEntityId,
+    adults,
+    children,
+    userCountry,
+  );
+
+  searchCache = { key: cacheKey, result, markdown };
+  return mcpResponse(id, { content: [{ type: "text", text: markdown }] });
 }

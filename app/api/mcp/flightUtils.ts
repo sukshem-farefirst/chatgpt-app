@@ -138,7 +138,7 @@ export function extractData(
           : `${stopCount} stop${stopCount > 1 ? "s" : ""}`;
 
       let layoverText: string | undefined;
-      layovers = []; 
+      layovers = [];
 
       if (stopCount > 0 && segments && (leg.segmentIds?.length ?? 0) > 1) {
         for (let i = 0; i < leg.segmentIds.length - 1; i++) {
@@ -194,7 +194,7 @@ export function extractData(
         stopCount,
         layover: layoverText,
         deeplink,
-        layovers, 
+        layovers,
       });
     }
 
