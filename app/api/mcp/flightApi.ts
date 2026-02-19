@@ -84,6 +84,8 @@ const COUNTRY_CURRENCY: Record<string, string> = {
 };
 
 export function getCurrencyForCountry(userCountry: string): string {
+  console.log("BBBB "+userCountry);
+  
   return COUNTRY_CURRENCY[userCountry.toUpperCase()] ?? "USD";
 }
 

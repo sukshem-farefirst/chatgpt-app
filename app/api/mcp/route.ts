@@ -42,7 +42,15 @@ function makeCacheKey(
   cabinClass: string,
   userCountry: string,
 ): string {
-  return [from, to, isoDate, String(adults), String(children), cabinClass, userCountry]
+  return [
+    from,
+    to,
+    isoDate,
+    String(adults),
+    String(children),
+    cabinClass,
+    userCountry,
+  ]
     .join("|")
     .toUpperCase();
 }
@@ -83,27 +91,40 @@ function buildAmbiguousBlock(
   const lines = airports
     .map((a) => `• ${a.name} (${a.iataCode}) — ${a.cityName}, ${a.countryName}`)
     .join("\n");
-  return `There are multiple ${label} airports for "${term}" ✈️\n${lines}`;
+  return `There are multiple ${label} airports for "${term}" \n${lines}`;
 }
 
-function resolveUserCountry(body: Record<string, unknown>): string {
-  const metaLocation = (body?.metadata as any)?.user?.location;
-  if (metaLocation?.country) {
-    console.log(`[location] from ChatGPT metadata: ${metaLocation.country}`);
-    return metaLocation.country as string;
+const COUNTRY_COOKIE = "ff_country";
+
+async function resolveUserCountry(
+  req: NextRequest,
+  body: any,
+): Promise<{ country: string; setCookie: boolean }> {
+  const cached = req.cookies.get(COUNTRY_COOKIE)?.value;
+  if (cached) {
+    console.log(`from cookie: ${cached}`);
+    return { country: cached, setCookie: false };
   }
 
-  const metaLocale = (body?.metadata as any)?.user?.locale;
-  if (metaLocale) {
-    const fromLocale = (metaLocale as string).split("-")[1];
-    if (fromLocale) {
-      console.log(`[location] from ChatGPT locale: ${fromLocale}`);
-      return fromLocale;
+  try {
+    const response = await fetch("https://super.staging.net.in/api/v1/utils/whereami/init?locale=en-US", {
+      headers: {
+        "x-api-key": "SSZbsPSLJKxYqHCQDHvOG6EnhZZFG4TTSI",
+        Accept: "application/json",
+      },
+    });
+    if (response.ok) {
+      console.log("CALLED");
+      
+      const data = await response.json();
+      const country: string = data?.culture?.market?.code ?? "US";
+      return { country, setCookie: true };
     }
+  } catch (err) {
+    console.warn("API failed:", err);
   }
 
-  console.log("[location] fallback: US");
-  return "US"; 
+  return { country: "US", setCookie: true };
 }
 
 export async function POST(req: NextRequest) {
@@ -111,7 +132,10 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { method, id, params } = body;
 
-    const userCountry = resolveUserCountry(body);
+    const { country: userCountry } = await resolveUserCountry(
+      req,
+      body,
+    );
     console.log(`[userCountry] ${userCountry}`);
 
     if (method === "initialize") {
@@ -143,11 +167,13 @@ export async function POST(req: NextRequest) {
               properties: {
                 from: {
                   type: "string",
-                  description: "Origin city name or IATA code (e.g. 'Goa' or 'GOI')",
+                  description:
+                    "Origin city name or IATA code (e.g. 'Goa' or 'GOI')",
                 },
                 to: {
                   type: "string",
-                  description: "Destination city name or IATA code (e.g. 'New York' or 'JFK')",
+                  description:
+                    "Destination city name or IATA code (e.g. 'New York' or 'JFK')",
                 },
                 date: {
                   type: "string",
@@ -198,7 +224,12 @@ export async function POST(req: NextRequest) {
 
       if (!from || !to || !date) {
         return mcpResponse(id, {
-          content: [{ type: "text", text: "Please provide origin, destination, and travel date." }],
+          content: [
+            {
+              type: "text",
+              text: "Please provide origin, destination, and travel date.",
+            },
+          ],
         });
       }
 
@@ -217,12 +248,12 @@ export async function POST(req: NextRequest) {
       }
 
       const session = pendingSession;
-
       const fromInput = selectedFromIata ?? from;
-      const toInput   = selectedToIata   ?? to;
+      const toInput = selectedToIata ?? to;
 
-      let resolvedFromEntityId: string | undefined = session?.resolvedFromEntityId;
-      let resolvedFromIata: string                 = session?.resolvedFromIata ?? from;
+      let resolvedFromEntityId: string | undefined =
+        session?.resolvedFromEntityId;
+      let resolvedFromIata: string = session?.resolvedFromIata ?? from;
       let fromCandidates: AirportSuggestion[] | null = null;
       let fromNeedsAutosuggest = true;
 
@@ -230,11 +261,10 @@ export async function POST(req: NextRequest) {
         const match = matchFromCandidates(fromInput, session.fromCandidates);
         if (match) {
           resolvedFromEntityId = match.entityId;
-          resolvedFromIata     = match.iataCode;
+          resolvedFromIata = match.iataCode;
           fromNeedsAutosuggest = false;
-          console.log(`[resolve] origin matched from session: ${match.iataCode}`);
         } else {
-          fromCandidates       = session.fromCandidates;
+          fromCandidates = session.fromCandidates;
           fromNeedsAutosuggest = true;
         }
       } else if (session && !session.fromCandidates) {
@@ -242,7 +272,7 @@ export async function POST(req: NextRequest) {
       }
 
       let resolvedToEntityId: string | undefined = session?.resolvedToEntityId;
-      let resolvedToIata: string                 = session?.resolvedToIata ?? to;
+      let resolvedToIata: string = session?.resolvedToIata ?? to;
       let toCandidates: AirportSuggestion[] | null = null;
       let toNeedsAutosuggest = true;
 
@@ -250,11 +280,10 @@ export async function POST(req: NextRequest) {
         const match = matchFromCandidates(toInput, session.toCandidates);
         if (match) {
           resolvedToEntityId = match.entityId;
-          resolvedToIata     = match.iataCode;
+          resolvedToIata = match.iataCode;
           toNeedsAutosuggest = false;
-          console.log(`[resolve] destination matched from session: ${match.iataCode}`);
         } else {
-          toCandidates       = session.toCandidates;
+          toCandidates = session.toCandidates;
           toNeedsAutosuggest = true;
         }
       } else if (session && !session.toCandidates) {
@@ -262,28 +291,30 @@ export async function POST(req: NextRequest) {
       }
 
       if (fromNeedsAutosuggest || toNeedsAutosuggest) {
-        console.log(
-          `[autosuggest] needed — from:${fromNeedsAutosuggest} (${fromInput}) | to:${toNeedsAutosuggest} (${toInput})`,
-        );
-
         const [originResult, destResult] = await Promise.all([
-          fromNeedsAutosuggest ? resolveAirportWithLogic(fromInput, "IN") : Promise.resolve(null),
-          toNeedsAutosuggest   ? resolveAirportWithLogic(toInput,   "US") : Promise.resolve(null),
+          fromNeedsAutosuggest
+            ? resolveAirportWithLogic(fromInput, "IN")
+            : Promise.resolve(null),
+          toNeedsAutosuggest
+            ? resolveAirportWithLogic(toInput, "US")
+            : Promise.resolve(null),
         ]);
 
         if (originResult !== null) {
           if (originResult.status === "resolved") {
             resolvedFromEntityId = originResult.airport.entityId;
-            resolvedFromIata     = originResult.airport.iataCode;
-            fromCandidates       = null;
+            resolvedFromIata = originResult.airport.iataCode;
+            fromCandidates = null;
           } else if (originResult.status === "ambiguous") {
             fromCandidates = originResult.airports;
           } else {
             return mcpResponse(id, {
-              content: [{
-                type: "text",
-                text: `Could not find origin airport for "${fromInput}". Please try a different name or IATA code.`,
-              }],
+              content: [
+                {
+                  type: "text",
+                  text: `Could not find origin airport for "${fromInput}". Please try a different name or IATA code.`,
+                },
+              ],
             });
           }
         }
@@ -291,16 +322,18 @@ export async function POST(req: NextRequest) {
         if (destResult !== null) {
           if (destResult.status === "resolved") {
             resolvedToEntityId = destResult.airport.entityId;
-            resolvedToIata     = destResult.airport.iataCode;
-            toCandidates       = null;
+            resolvedToIata = destResult.airport.iataCode;
+            toCandidates = null;
           } else if (destResult.status === "ambiguous") {
             toCandidates = destResult.airports;
           } else {
             return mcpResponse(id, {
-              content: [{
-                type: "text",
-                text: `Could not find destination airport for "${toInput}". Please try a different name or IATA code.`,
-              }],
+              content: [
+                {
+                  type: "text",
+                  text: `Could not find destination airport for "${toInput}". Please try a different name or IATA code.`,
+                },
+              ],
             });
           }
         }
@@ -324,12 +357,14 @@ export async function POST(req: NextRequest) {
         };
 
         const ambiguousBlocks: string[] = [];
-        if (fromCandidates) {
-          ambiguousBlocks.push(buildAmbiguousBlock("origin", fromInput, fromCandidates));
-        }
-        if (toCandidates) {
-          ambiguousBlocks.push(buildAmbiguousBlock("destination", toInput, toCandidates));
-        }
+        if (fromCandidates)
+          ambiguousBlocks.push(
+            buildAmbiguousBlock("origin", fromInput, fromCandidates),
+          );
+        if (toCandidates)
+          ambiguousBlocks.push(
+            buildAmbiguousBlock("destination", toInput, toCandidates),
+          );
 
         const suffix =
           ambiguousBlocks.length > 1
@@ -337,7 +372,9 @@ export async function POST(req: NextRequest) {
             : "\n\nPlease reply with the IATA code to continue.";
 
         return mcpResponse(id, {
-          content: [{ type: "text", text: ambiguousBlocks.join("\n\n") + suffix }],
+          content: [
+            { type: "text", text: ambiguousBlocks.join("\n\n") + suffix },
+          ],
         });
       }
 
@@ -364,7 +401,8 @@ export async function POST(req: NextRequest) {
     return mcpResponse(null, {
       error: {
         code: -32603,
-        message: error instanceof Error ? error.message : "Internal server error",
+        message:
+          error instanceof Error ? error.message : "Internal server error",
       },
     });
   }
@@ -393,11 +431,21 @@ async function runSearch({
   toEntityId: string;
   userCountry: string;
 }) {
-  const cacheKey = makeCacheKey(from, to, date, adults, children, cabinClass, userCountry);
+  const cacheKey = makeCacheKey(
+    from,
+    to,
+    date,
+    adults,
+    children,
+    cabinClass,
+    userCountry,
+  );
 
   if (searchCache?.key === cacheKey) {
-    console.log(`[cache] hit: ${cacheKey}`);
-    return mcpResponse(id, { content: [{ type: "text", text: searchCache.markdown }] });
+    console.log(`cache hit: ${cacheKey}`);
+    return mcpResponse(id, {
+      content: [{ type: "text", text: searchCache.markdown }],
+    });
   }
 
   const result: FlightSearchResult = await fetchFlights(
@@ -421,7 +469,7 @@ async function runSearch({
         {
           type: "text",
           text:
-            `No flights found from ${from} to ${to} on ${date}.\n\n` +
+            `Result Found - ${from} to ${to} on ${date}.\n\n` +
             `[Search on FareFirst](${RESULTS_URL}${fromEntityId}-${formattedDate}-${toEntityId}?adults=${adults}&children=${children}&ages=&cabin_class=Y&trip_type=oneway)`,
         },
       ],
