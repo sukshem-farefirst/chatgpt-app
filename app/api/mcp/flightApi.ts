@@ -319,6 +319,9 @@ export async function fetchFlights(
       },
     );
 
+    console.log("Payload : "+JSON.stringify(payload));
+    
+
     if (!searchRes.ok) {
       const errorText = await searchRes.text().catch(() => "");
       throw new Error(`Search failed: ${searchRes.status} ${errorText}`);

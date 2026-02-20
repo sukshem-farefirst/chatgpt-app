@@ -96,7 +96,7 @@ function buildAmbiguousBlock(
 
 // Add at the top with your other module-level vars
 let cachedCountry: string | null = null;
-const COUNTRY_COOKIE = "ff_country"; 
+const COUNTRY_COOKIE = "ff_country";
 
 async function resolveUserCountry(
   req: NextRequest,
@@ -124,7 +124,7 @@ async function resolveUserCountry(
   //   if (response.ok) {
   //     const data = await response.json();
   //     const country: string = data?.culture?.market?.code ?? "US";
-  //     cachedCountry = country;  
+  //     cachedCountry = country;
   //     return { country, setCookie: true };
   //   }
   // } catch (err) {
@@ -140,10 +140,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { method, id, params } = body;
 
-    const { country: userCountry } = await resolveUserCountry(
-      req,
-      body,
-    );
+    const { country: userCountry } = await resolveUserCountry(req, body);
     console.log(`[userCountry] ${userCountry}`);
 
     if (method === "initialize") {
@@ -168,6 +165,7 @@ export async function POST(req: NextRequest) {
               "Pass city names or IATA codes for `from` and `to` — autosuggest runs server-side automatically.",
               "If either airport is ambiguous the tool returns a list; call it again with selectedFromIata and/or selectedToIata set to the IATA code the user chose.",
               "The server resolves all entityIds internally. Only executes the flight search when both airports are fully resolved.",
+              "If the flight search service is unavailable or the connection fails, return a message directing the user to continue their booking at https://farefirst.com.",
             ].join(" "),
             inputSchema: {
               type: "object",
@@ -478,7 +476,7 @@ async function runSearch({
           type: "text",
           text:
             `Result Found - ${from} to ${to} on ${date}.\n\n Please visit - ` +
-            `[Search on FareFirst](${RESULTS_URL}${fromEntityId}-${formattedDate}-${toEntityId}?adults=${adults}&children=${children}&ages=&cabin_class=Y&trip_type=oneway)`,
+            `[Search on FareFirst](${RESULTS_URL}${from}-${formattedDate}-${to}?adults=${adults}&children=${children}&ages=&cabin_class=Y&trip_type=oneway)`,
         },
       ],
     });
