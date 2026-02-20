@@ -14,6 +14,27 @@ export interface AirportSuggestion {
   type: string;
 }
 
+export interface AirportAmbiguous {
+  status: "ambiguous";
+  airports: AirportSuggestion[];
+  message: string;
+}
+
+export interface AirportResolved {
+  status: "resolved";
+  airport: AirportSuggestion;
+}
+
+export interface AirportNotFound {
+  status: "not_found";
+  message: string;
+}
+
+export type AirportResolveResult =
+  | AirportResolved
+  | AirportAmbiguous
+  | AirportNotFound;
+
 export interface FlightSearchResult {
   flights: FlightSummary[];
   fromEntityId?: string;
@@ -63,59 +84,121 @@ const COUNTRY_CURRENCY: Record<string, string> = {
 };
 
 export function getCurrencyForCountry(userCountry: string): string {
+  console.log("BBBB "+userCountry);
+  
   return COUNTRY_CURRENCY[userCountry.toUpperCase()] ?? "USD";
 }
 
-export async function resolveAirport(
+export async function fetchAirportSuggestions(
   searchTerm: string,
   suggestMarket: "IN" | "US" = "IN",
-): Promise<AirportSuggestion | null> {
+): Promise<AirportSuggestion[]> {
   try {
-    const res = await fetch(`https://super.staging.net.in/api/v1/ss/v3/autosuggest/flights?live=true`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "x-api-key": "SSZbsPSLJKxYqHCQDHvOG6EnhZZFG4TTSI",
-      },
-      body: JSON.stringify({
-        query: {
-          market: suggestMarket,
-          locale: "en-US",
-          searchTerm,
-          includedEntityTypes: ["PLACE_TYPE_CITY", "PLACE_TYPE_AIRPORT"],
+    const res = await fetch(
+      `https://super.staging.net.in/api/v1/ss/v3/autosuggest/flights?live=true`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "x-api-key": "SSZbsPSLJKxYqHCQDHvOG6EnhZZFG4TTSI",
         },
-        limit: 7,
-        isDestination: true,
-      }),
-    });
+        body: JSON.stringify({
+          query: {
+            market: suggestMarket,
+            locale: "en-US",
+            searchTerm,
+            includedEntityTypes: ["PLACE_TYPE_CITY", "PLACE_TYPE_AIRPORT"],
+          },
+          limit: 7,
+          isDestination: true,
+        }),
+      },
+    );
 
     if (!res.ok) {
-      const errText = await res.text().catch(() => "");
-      console.error(`[resolveAirport] Autosuggest failed (market:${suggestMarket}): ${res.status} ${errText}`);
-      return null;
+      return [];
     }
 
     const data = await res.json();
-    console.log(
-      `[resolveAirport] market:${suggestMarket} | "${searchTerm}" → ${data?.places?.length ?? 0} result(s) | top: ${data?.places?.[0]?.iataCode ?? "none"}`,
+    const places: AirportSuggestion[] = (data?.places ?? []).map(
+      (place: any) => ({
+        entityId: place.entityId,
+        iataCode: place.iataCode,
+        name: place.name,
+        cityName: place.cityName || place.name,
+        countryName: place.countryName,
+        type: place.type,
+      }),
     );
 
-    const place = data?.places?.[0];
-    if (!place) return null;
+    return places;
+  } catch (err) {
+    return [];
+  }
+}
+
+export async function resolveAirportWithLogic(
+  searchTerm: string,
+  suggestMarket: "IN" | "US" = "IN",
+): Promise<AirportResolveResult> {
+  const allPlaces = await fetchAirportSuggestions(searchTerm, suggestMarket);
+
+  if (allPlaces.length === 0) {
+    return {
+      status: "not_found",
+      message: `Could not find any airport or city matching "${searchTerm}". Please try a more specific name or use the IATA code directly.`,
+    };
+  }
+
+  if (allPlaces.length === 1) {
+    return { status: "resolved", airport: allPlaces[0] };
+  }
+
+  const exactIataMatch = allPlaces.find(
+    (p) =>
+      p.iataCode?.toUpperCase() === searchTerm.trim().toUpperCase() &&
+      p.type === "PLACE_TYPE_AIRPORT",
+  );
+  if (exactIataMatch) {
+    return { status: "resolved", airport: exactIataMatch };
+  }
+
+  const airportOnlyPlaces = deduplicateByEntityId(
+    allPlaces.filter((p) => p.type !== "PLACE_TYPE_CITY"),
+  );
+
+  if (airportOnlyPlaces.length === 1) {
+    return { status: "resolved", airport: airportOnlyPlaces[0] };
+  }
+
+  if (airportOnlyPlaces.length > 1) {
+    const airportList = airportOnlyPlaces
+      .map(
+        (a) =>
+          `• ${a.name} (${a.iataCode}) — ${a.cityName}, ${a.countryName} [entityId:${a.entityId}]`,
+      )
+      .join("\n");
 
     return {
-      entityId: place.entityId,
-      iataCode: place.iataCode,
-      name: place.name,
-      cityName: place.cityName || place.name,
-      countryName: place.countryName,
-      type: place.type,
+      status: "ambiguous",
+      airports: airportOnlyPlaces,
+      message: `There are multiple airports for "${searchTerm}" \n${airportList}`,
     };
-  } catch (err) {
-    console.error("[resolveAirport] Error:", err);
-    return null;
   }
+
+  return { status: "resolved", airport: allPlaces[0] };
+}
+
+function deduplicateByEntityId(
+  places: AirportSuggestion[],
+): AirportSuggestion[] {
+  const seen = new Set<string>();
+  return places.filter((p) => {
+    if (seen.has(p.entityId)) return false;
+    seen.add(p.entityId);
+    return true;
+  });
 }
 
 function createSearchPayload(
@@ -172,7 +255,7 @@ function fallbackFlights(from: string, to: string): FlightSummary[] {
       stops: "Direct",
       stopCount: 0,
       deeplink: "https://farefirst.com",
-      layovers:[]
+      layovers: [],
     },
     {
       tripType: "One Stop",
@@ -188,7 +271,7 @@ function fallbackFlights(from: string, to: string): FlightSummary[] {
       stopCount: 1,
       layover: "6h 25m layover in DEL",
       deeplink: "https://farefirst.com",
-      layovers:[]
+      layovers: [],
     },
   ];
 }
@@ -205,33 +288,11 @@ export async function fetchFlights(
   userCountry: string = "US",
 ): Promise<FlightSearchResult> {
   const currency = getCurrencyForCountry(userCountry);
-  console.log(`[fetchFlights] market: ${userCountry} | currency: ${currency}`);
+  console.log(`Country: ${userCountry} | currency: ${currency}`);
 
   try {
-    let resolvedFromEntityId = fromEntityId;
-    let resolvedToEntityId = toEntityId;
-
-    if (!resolvedFromEntityId) {
-      const origin = await resolveAirport(from, "IN");
-      if (origin) {
-        resolvedFromEntityId = origin.entityId;
-        console.log(`[fetchFlights] origin: ${from} → ${origin.iataCode} (${origin.entityId})`);
-      } else {
-        console.warn(`[fetchFlights] could not resolve origin "${from}", falling back to IATA`);
-      }
-    }
-
-    if (!resolvedToEntityId) {
-      const destination = await resolveAirport(to, "US");
-      if (destination) {
-        resolvedToEntityId = destination.entityId;
-        console.log(`[fetchFlights] destination: ${to} → ${destination.iataCode} (${destination.entityId})`);
-      } else {
-        console.warn(`[fetchFlights] could not resolve destination "${to}", falling back to IATA`);
-      }
-    }
-
-    console.log(`[fetchFlights] entityIds: from=${resolvedFromEntityId ?? from}, to=${resolvedToEntityId ?? to}`);
+    const resolvedFromEntityId = fromEntityId;
+    const resolvedToEntityId = toEntityId;
 
     const payload = createSearchPayload(
       from,
@@ -246,16 +307,17 @@ export async function fetchFlights(
       resolvedToEntityId,
     );
 
-    console.log(`[fetchFlights] payload: ${JSON.stringify(payload)}`);
-
-    const searchRes = await fetch(`${BASE_URL}/live/search/create?live=${IS_LIVE}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": "SSZbsPSLJKxYqHCQDHvOG6EnhZZFG4TTSI",
+    const searchRes = await fetch(
+      `${BASE_URL}/live/search/create?live=${IS_LIVE}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": "SSZbsPSLJKxYqHCQDHvOG6EnhZZFG4TTSI",
+        },
+        body: JSON.stringify(payload),
       },
-      body: JSON.stringify(payload),
-    });
+    );
 
     if (!searchRes.ok) {
       const errorText = await searchRes.text().catch(() => "");
@@ -273,7 +335,7 @@ export async function fetchFlights(
     }
 
     const initialFlights = extractData(searchData, from, to);
-    console.log(`[fetchFlights] flight count: ${initialFlights.length}`);
+    console.log(`flight count: ${initialFlights.length}`);
 
     return {
       flights: initialFlights,
@@ -281,7 +343,7 @@ export async function fetchFlights(
       toEntityId: resolvedToEntityId,
     };
   } catch (error) {
-    console.error("[fetchFlights] error – using fallback data:", error);
+    console.error("error:", error);
     return { flights: fallbackFlights(from, to) };
   }
 }
