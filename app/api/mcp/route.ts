@@ -478,7 +478,7 @@ async function runSearch({
           type: "text",
           text:
             `Result Found - ${from} to ${to} on ${date}.\n\n Please visit - ` +
-            `[Search on FareFirst](${RESULTS_URL}${fromEntityId}-${formattedDate}-${toEntityId}?adults=${adults}&children=${children}&ages=&cabin_class=Y&trip_type=oneway)`,
+            `[Search on FareFirst](${RESULTS_URL}${from}-${formattedDate}-${to}?adults=${adults}&children=${children}&ages=&cabin_class=Y&trip_type=oneway)`,
         },
       ],
     });

@@ -33,7 +33,7 @@ export interface DateObj {
 export const BASE_URL = "https://super.staging.net.in/api/v1/ss/v3/flights";
 export const IS_LIVE = true;
 export const BOOKING_URL = "https://farefirst.com";
-export const RESULTS_URL = "https://staging.net.in/flight-results/";
+export const RESULTS_URL = "https://farefirst.com/flight-results/";
 
 export const POLL_MAX_ATTEMPTS = 3;
 export const POLL_INTERVAL_MS = 60_000;
