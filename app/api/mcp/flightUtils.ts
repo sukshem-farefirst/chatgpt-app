@@ -235,7 +235,9 @@ export function extractData(
 
             const layoverCity = layoverPlace?.iata ?? "Unknown";
 
-            layovers.push(`${layoverCity} - ${formatDuration(layoverMins)}`);
+            layovers.push(
+              `${layoverCity} - ${formatDuration(layoverMins)}`,
+            );
           }
         }
       }
