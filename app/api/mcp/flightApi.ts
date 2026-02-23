@@ -84,8 +84,6 @@ const COUNTRY_CURRENCY: Record<string, string> = {
 };
 
 export function getCurrencyForCountry(userCountry: string): string {
-  console.log("BBBB "+userCountry);
-  
   return COUNTRY_CURRENCY[userCountry.toUpperCase()] ?? "USD";
 }
 
@@ -240,42 +238,6 @@ function createSearchPayload(
   };
 }
 
-function fallbackFlights(from: string, to: string): FlightSummary[] {
-  return [
-    {
-      tripType: "Nonstop",
-      airline: "IndiGo",
-      duration: "2h 40m",
-      from,
-      to,
-      price: "₹3,500",
-      priceRaw: 3500,
-      departureTime: "07:20",
-      arrivalTime: "09:55",
-      stops: "Direct",
-      stopCount: 0,
-      deeplink: "https://farefirst.com",
-      layovers: [],
-    },
-    {
-      tripType: "One Stop",
-      airline: "Air India",
-      duration: "10h 35m",
-      from,
-      to,
-      price: "₹4,000",
-      priceRaw: 4000,
-      departureTime: "13:30",
-      arrivalTime: "00:05",
-      stops: "1 stop",
-      stopCount: 1,
-      layover: "6h 25m layover in DEL",
-      deeplink: "https://farefirst.com",
-      layovers: [],
-    },
-  ];
-}
-
 export async function fetchFlights(
   from: string = "JFK",
   to: string = "DXB",
@@ -288,7 +250,6 @@ export async function fetchFlights(
   userCountry: string = "US",
 ): Promise<FlightSearchResult> {
   const currency = getCurrencyForCountry(userCountry);
-  console.log(`Country: ${userCountry} | currency: ${currency}`);
 
   try {
     const resolvedFromEntityId = fromEntityId;
@@ -306,7 +267,6 @@ export async function fetchFlights(
       resolvedFromEntityId,
       resolvedToEntityId,
     );
-
     const searchRes = await fetch(
       `${BASE_URL}/live/search/create?live=${IS_LIVE}`,
       {
@@ -335,7 +295,6 @@ export async function fetchFlights(
     }
 
     const initialFlights = extractData(searchData, from, to);
-    console.log(`flight count: ${initialFlights.length}`);
 
     return {
       flights: initialFlights,
@@ -344,6 +303,6 @@ export async function fetchFlights(
     };
   } catch (error) {
     console.error("error:", error);
-    return { flights: fallbackFlights(from, to) };
+    return { flights: [] };
   }
 }

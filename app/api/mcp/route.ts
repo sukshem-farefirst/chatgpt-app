@@ -94,43 +94,12 @@ function buildAmbiguousBlock(
   return `There are multiple ${label} airports for "${term}" \n${lines}`;
 }
 
-// Add at the top with your other module-level vars
 let cachedCountry: string | null = null;
-const COUNTRY_COOKIE = "ff_country"; 
 
 async function resolveUserCountry(
   req: NextRequest,
   body: any,
 ): Promise<{ country: string; setCookie: boolean }> {
-  // if (cachedCountry) {
-  //   console.log(`from memory: ${cachedCountry}`);
-  //   return { country: cachedCountry, setCookie: false };
-  // }
-
-  // const cached = req.cookies.get(COUNTRY_COOKIE)?.value;
-  // if (cached) {
-  //   console.log(`from cookie: ${cached}`);
-  //   cachedCountry = cached;
-  //   return { country: cached, setCookie: false };
-  // }
-
-  // try {
-  //   const response = await fetch("https://super.staging.net.in/api/v1/utils/whereami/init?locale=en-US", {
-  //     headers: {
-  //       "x-api-key": "SSZbsPSLJKxYqHCQDHvOG6EnhZZFG4TTSI",
-  //       Accept: "application/json",
-  //     },
-  //   });
-  //   if (response.ok) {
-  //     const data = await response.json();
-  //     const country: string = data?.culture?.market?.code ?? "US";
-  //     cachedCountry = country;  
-  //     return { country, setCookie: true };
-  //   }
-  // } catch (err) {
-  //   console.warn("Country API failed:", err);
-  // }
-
   cachedCountry = "US";
   return { country: "US", setCookie: true };
 }
@@ -140,11 +109,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { method, id, params } = body;
 
-    const { country: userCountry } = await resolveUserCountry(
-      req,
-      body,
-    );
-    console.log(`[userCountry] ${userCountry}`);
+    const { country: userCountry } = await resolveUserCountry(req, body);
 
     if (method === "initialize") {
       return mcpResponse(id, {
@@ -450,7 +415,6 @@ async function runSearch({
   );
 
   if (searchCache?.key === cacheKey) {
-    console.log(`cache hit: ${cacheKey}`);
     return mcpResponse(id, {
       content: [{ type: "text", text: searchCache.markdown }],
     });
@@ -484,7 +448,7 @@ async function runSearch({
     });
   }
 
-  const markdown = formatFlightsAsMarkdown(
+  const markdown = await formatFlightsAsMarkdown(
     flights,
     from,
     to,
