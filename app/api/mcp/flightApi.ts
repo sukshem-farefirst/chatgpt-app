@@ -295,6 +295,7 @@ export async function fetchFlights(
     }
 
     const initialFlights = extractData(searchData, from, to);
+    console.log(initialFlights.length);
 
     return {
       flights: initialFlights,

@@ -14,9 +14,7 @@ export function parseDateToAPIFormat(dateStr: string): DateObj {
 export function formatTime(datetime: any): string {
   if (!datetime) return "N/A";
   const { hour, minute } = datetime;
-  return `${hour.toString().padStart(2, "0")}:${minute
-    .toString()
-    .padStart(2, "0")}`;
+  return `${hour.toString().padStart(2, "0")}:${minute.toString().padStart(2, "0")}`;
 }
 
 function formatTime24to12(time: string): string {
@@ -80,25 +78,15 @@ async function shortenDeeplinks(urls: string[]): Promise<string[]> {
       "https://shortnerurl-5oz2r3w4ya-uc.a.run.app/shorten",
       {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ urls }),
       },
     );
-
-    if (!response.ok) {
-      return urls;
-    }
-
+    if (!response.ok) return urls;
     const data = await response.json();
-
-    if (!data?.shortUrls || !Array.isArray(data.shortUrls)) {
-      return urls;
-    }
-
+    if (!data?.shortUrls || !Array.isArray(data.shortUrls)) return urls;
     return data.shortUrls;
-  } catch (error) {
+  } catch {
     return urls;
   }
 }
@@ -114,14 +102,12 @@ async function attachShortLinks(
       : typeof flight.deeplink === "string"
         ? [flight.deeplink]
         : [];
-
     allUrls.push(...deeplinks);
   });
 
   if (allUrls.length === 0) return flights;
 
   const shortUrls = await shortenDeeplinks(allUrls);
-
   let index = 0;
 
   return flights.map((flight) => {
@@ -130,14 +116,9 @@ async function attachShortLinks(
       : typeof flight.deeplink === "string"
         ? [flight.deeplink]
         : [];
-
     const updatedLinks = shortUrls.slice(index, index + deeplinks.length);
     index += deeplinks.length;
-
-    return {
-      ...flight,
-      deeplink: updatedLinks,
-    };
+    return { ...flight, deeplink: updatedLinks };
   });
 }
 
@@ -169,7 +150,6 @@ export function extractData(
       const priceUnit = pricingOption?.price?.unit;
 
       let priceRaw = 0;
-
       if (priceAmount && priceUnit === "PRICE_UNIT_MILLI") {
         priceRaw = parseInt(priceAmount);
       }
@@ -197,7 +177,6 @@ export function extractData(
       const departureTime = formatTime(leg.departureDateTime);
       const arrivalTime = formatTime(leg.arrivalDateTime);
       const duration = formatDuration(leg.durationInMinutes ?? 0);
-
       const stopCount: number = leg.stopCount ?? 0;
 
       let layovers: string[] = [];
@@ -211,20 +190,28 @@ export function extractData(
             const arrDT = firstSeg.arrivalDateTime;
             const depDT = secondSeg.departureDateTime;
 
+            if (!arrDT || !depDT) {
+              const layoverPlace = firstSeg.destinationPlaceId
+                ? places?.[firstSeg.destinationPlaceId]
+                : null;
+              layovers.push(layoverPlace?.iata ?? "Unknown");
+              continue;
+            }
+
             const arrMs = new Date(
-              arrDT.year,
-              arrDT.month - 1,
-              arrDT.day,
-              arrDT.hour,
-              arrDT.minute,
+              arrDT.year ?? 0,
+              (arrDT.month ?? 1) - 1,
+              arrDT.day ?? 1,
+              arrDT.hour ?? 0,
+              arrDT.minute ?? 0,
             ).getTime();
 
             const depMs = new Date(
-              depDT.year,
-              depDT.month - 1,
-              depDT.day,
-              depDT.hour,
-              depDT.minute,
+              depDT.year ?? 0,
+              (depDT.month ?? 1) - 1,
+              depDT.day ?? 1,
+              depDT.hour ?? 0,
+              depDT.minute ?? 0,
             ).getTime();
 
             const layoverMins = Math.floor((depMs - arrMs) / 60000);
@@ -232,12 +219,13 @@ export function extractData(
             const layoverPlace = firstSeg.destinationPlaceId
               ? places?.[firstSeg.destinationPlaceId]
               : null;
-
             const layoverCity = layoverPlace?.iata ?? "Unknown";
 
-            layovers.push(
-              `${layoverCity} - ${formatDuration(layoverMins)}`,
-            );
+            if (layoverMins > 0) {
+              layovers.push(`${layoverCity} - ${formatDuration(layoverMins)}`);
+            } else {
+              layovers.push(layoverCity);
+            }
           }
         }
       }
@@ -273,6 +261,56 @@ export function sortFlights(flights: FlightSummary[]): FlightSummary[] {
   return [...direct, ...oneStop];
 }
 
+export function formatFlightObject(f: FlightSummary, currency: string) {
+  const layoverStr =
+    f.layovers && f.layovers.length > 0 ? ` (${f.layovers.join(", ")})` : "";
+
+  return {
+    airline: f.airline,
+    departure: formatTime24to12(f.departureTime),
+    arrival: formatTime24to12(f.arrivalTime),
+    duration: f.duration,
+    stops: f.stopCount === 0 ? "Direct" : `${f.stopCount} stop${layoverStr}`,
+    price: formatPrice(f.priceRaw, currency),
+    book: Array.isArray(f.deeplink)
+      ? (f.deeplink[0] ?? null)
+      : (f.deeplink ?? null),
+  };
+}
+
+export async function buildStructuredFlightResponse(
+  flights: FlightSummary[],
+  from: string,
+  to: string,
+  date: string,
+  adults: number = 1,
+  children: number = 0,
+  userCountry?: string,
+): Promise<string> {
+  const currency = getCurrencyFromCountry(userCountry);
+  const formattedDate = date.replace(/-/g, "");
+  const flightsWithShortLinks = await attachShortLinks(flights);
+
+  const directFlights = flightsWithShortLinks
+    .filter((f) => f.stopCount === 0)
+    .map((f) => formatFlightObject(f, currency));
+
+  const connectingFlights = flightsWithShortLinks
+    .filter((f) => f.stopCount > 0)
+    .sort((a, b) => a.priceRaw - b.priceRaw)
+    .map((f) => formatFlightObject(f, currency));
+
+  const structured = {
+    route: `${from} → ${to}`,
+    date,
+    direct_flights: directFlights,
+    connecting_flights: connectingFlights,
+    view_all: `${RESULTS_URL}${from}-${formattedDate}-${to}?adults=${adults}&children=${children}&ages=&cabin_class=Y&trip_type=oneway`,
+  };
+
+  return JSON.stringify(structured, null, 2);
+}
+
 export async function formatFlightsAsMarkdown(
   flights: FlightSummary[],
   from: string,
@@ -289,7 +327,6 @@ export async function formatFlightsAsMarkdown(
   const flightsWithShortLinks = await attachShortLinks(flights);
 
   const directFlights = flightsWithShortLinks.filter((f) => f.stopCount === 0);
-
   const stopFlights = flightsWithShortLinks
     .filter((f) => f.stopCount > 0)
     .sort((a, b) => a.priceRaw - b.priceRaw);
@@ -310,7 +347,12 @@ export async function formatFlightsAsMarkdown(
   }
 
   if (stopFlights.length > 0) {
-    lines.push(`### Cheapest Flights (1 Stop)`, ``);
+    const maxStops = Math.max(...stopFlights.map((f) => f.stopCount));
+    const stopHeading =
+      maxStops === 1
+        ? "Cheapest Flights (1 Stop)"
+        : "Cheapest Flights (With Stops)";
+    lines.push(`### ${stopHeading}`, ``);
     lines.push(...tableHeader);
     stopFlights.forEach((f) => lines.push(renderFlightRow(f, currency)));
     lines.push(``);
@@ -327,15 +369,17 @@ export async function formatFlightsAsMarkdown(
 }
 
 function renderFlightRow(flight: FlightSummary, currency: string): string {
-  const stops =
-    flight.stopCount === 0
-      ? "Direct"
-      : `${flight.stopCount} stop${flight.stopCount > 1 ? "s" : ""}`;
+  let stops: string;
 
-  const layovers =
-    flight.layovers && flight.layovers.length > 0
-      ? `(${flight.layovers.join(", ")})`
-      : "";
+  if (flight.stopCount === 0) {
+    stops = "Direct";
+  } else {
+    const layoverStr =
+      flight.layovers && flight.layovers.length > 0
+        ? ` (${flight.layovers.join(", ")})`
+        : "";
+    stops = `${flight.stopCount} stop${flight.stopCount > 1 ? "s" : ""}${layoverStr}`;
+  }
 
   const departure = formatTime24to12(flight.departureTime);
   const arrival = formatTime24to12(flight.arrivalTime);
@@ -348,5 +392,5 @@ function renderFlightRow(flight: FlightSummary, currency: string): string {
 
   const bookLink = link ? `[Book](${link})` : "N/A";
 
-  return `| ${flight.airline} | ${departure} | ${arrival} | ${flight.duration} | ${stops}${layovers ? ` ${layovers}` : ""} | ${formattedPrice} | ${bookLink} |`;
+  return `| ${flight.airline} | ${departure} | ${arrival} | ${flight.duration} | ${stops} | ${formattedPrice} | ${bookLink} |`;
 }
