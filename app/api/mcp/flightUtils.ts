@@ -181,51 +181,49 @@ export function extractData(
 
       let layovers: string[] = [];
 
-      if (stopCount > 0 && segments && (leg.segmentIds?.length ?? 0) > 1) {
+      if (stopCount > 0 && segments && leg.segmentIds?.length > 1) {
         for (let i = 0; i < leg.segmentIds.length - 1; i++) {
           const firstSeg = segments[leg.segmentIds[i]];
-          const secondSeg = segments[leg.segmentIds[i + 1]];
+          const nextSeg = segments[leg.segmentIds[i + 1]];
 
-          if (firstSeg && secondSeg) {
-            const arrDT = firstSeg.arrivalDateTime;
-            const depDT = secondSeg.departureDateTime;
+          if (!firstSeg || !nextSeg) continue;
 
-            if (!arrDT || !depDT) {
-              const layoverPlace = firstSeg.destinationPlaceId
-                ? places?.[firstSeg.destinationPlaceId]
-                : null;
-              layovers.push(layoverPlace?.iata ?? "Unknown");
-              continue;
-            }
+          const layoverPlace = firstSeg.destinationPlaceId
+            ? places?.[firstSeg.destinationPlaceId]
+            : null;
 
-            const arrMs = new Date(
-              arrDT.year ?? 0,
-              (arrDT.month ?? 1) - 1,
-              arrDT.day ?? 1,
-              arrDT.hour ?? 0,
-              arrDT.minute ?? 0,
-            ).getTime();
+          const layoverCity = layoverPlace?.iata ?? "Unknown";
 
-            const depMs = new Date(
-              depDT.year ?? 0,
-              (depDT.month ?? 1) - 1,
-              depDT.day ?? 1,
-              depDT.hour ?? 0,
-              depDT.minute ?? 0,
-            ).getTime();
+          const arr = firstSeg.arrivalDateTime;
+          const dep = nextSeg.departureDateTime;
 
-            const layoverMins = Math.floor((depMs - arrMs) / 60000);
+          if (!arr || !dep) {
+            layovers.push(layoverCity);
+            continue;
+          }
 
-            const layoverPlace = firstSeg.destinationPlaceId
-              ? places?.[firstSeg.destinationPlaceId]
-              : null;
-            const layoverCity = layoverPlace?.iata ?? "Unknown";
+          const arrival = new Date(
+            arr.year,
+            arr.month - 1,
+            arr.day,
+            arr.hour,
+            arr.minute,
+          ).getTime();
 
-            if (layoverMins > 0) {
-              layovers.push(`${layoverCity} - ${formatDuration(layoverMins)}`);
-            } else {
-              layovers.push(layoverCity);
-            }
+          const departure = new Date(
+            dep.year,
+            dep.month - 1,
+            dep.day,
+            dep.hour,
+            dep.minute,
+          ).getTime();
+
+          const diff = Math.floor((departure - arrival) / 60000);
+
+          if (diff <= 0 || isNaN(diff)) {
+            layovers.push(layoverCity);
+          } else {
+            layovers.push(`${layoverCity} - ${formatDuration(diff)}`);
           }
         }
       }
@@ -374,11 +372,15 @@ function renderFlightRow(flight: FlightSummary, currency: string): string {
   if (flight.stopCount === 0) {
     stops = "Direct";
   } else {
-    const layoverStr =
+    const stopLabel =
+      flight.stopCount === 1 ? "1 stop" : `${flight.stopCount} stops`;
+
+    const layoverDetails =
       flight.layovers && flight.layovers.length > 0
         ? ` (${flight.layovers.join(", ")})`
         : "";
-    stops = `${flight.stopCount} stop${flight.stopCount > 1 ? "s" : ""}${layoverStr}`;
+
+    stops = stopLabel + layoverDetails;
   }
 
   const departure = formatTime24to12(flight.departureTime);
