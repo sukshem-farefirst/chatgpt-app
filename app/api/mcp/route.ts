@@ -141,7 +141,10 @@ export async function POST(req: NextRequest) {
               "Always end with a View All Results link using the 'view_all' field from the JSON.",
               "Never show raw JSON to the user.",
               "When tool returns status no_flights_found, respond with: No flights found for [from] to [to] on [date]. [Search on FareFirst](url).",
+              "CRITICAL: After a successful result is returned, DO NOT call the MCP server again unless at least one of these parameters changes: `from`, `to`, or `date`.",
+              "If none of these values change, reuse the existing result and do not trigger another tool call.",
             ].join(" "),
+
             inputSchema: {
               type: "object",
               required: ["from", "to", "date"],
