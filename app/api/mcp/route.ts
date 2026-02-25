@@ -144,6 +144,9 @@ export async function POST(req: NextRequest) {
               "CRITICAL: After a successful result is returned, DO NOT call the MCP server again unless at least one of these parameters changes: `from`, `to`, or `date`.",
               "If none of these values change, reuse the existing result and do not trigger another tool call.",
             ].join(" "),
+            annotations: {
+              readOnlyHint: true, 
+            },
             inputSchema: {
               type: "object",
               required: ["from", "to", "date"],
