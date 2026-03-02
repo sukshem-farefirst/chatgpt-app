@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
               "If none of these values change, reuse the existing result and do not trigger another tool call.",
             ].join(" "),
             annotations: {
-              readOnlyHint: true, 
+              readOnlyHint: true,
             },
             inputSchema: {
               type: "object",
@@ -228,6 +228,20 @@ export async function POST(req: NextRequest) {
             {
               type: "text",
               text: `Travel date (${formatReadable(isoDate)}) is in the past. Please provide a future date.`,
+            },
+          ],
+        });
+      }
+
+      const maxDate = new Date(today);
+      maxDate.setFullYear(maxDate.getFullYear() + 1);
+      const travelDate = new Date(isoDate);
+      if (travelDate > maxDate) {
+        return mcpResponse(id, {
+          content: [
+            {
+              type: "text",
+              text: `Travel date (${formatReadable(isoDate)}) must be within one year from today. Please choose an earlier date.`,
             },
           ],
         });
@@ -360,6 +374,21 @@ export async function POST(req: NextRequest) {
         return mcpResponse(id, {
           content: [
             { type: "text", text: ambiguousBlocks.join("\n\n") + suffix },
+          ],
+        });
+      }
+
+      if (
+        resolvedFromEntityId &&
+        resolvedToEntityId &&
+        resolvedFromEntityId === resolvedToEntityId
+      ) {
+        return mcpResponse(id, {
+          content: [
+            {
+              type: "text",
+              text: "Origin and destination airports cannot be the same. Please select different airports.",
+            },
           ],
         });
       }
