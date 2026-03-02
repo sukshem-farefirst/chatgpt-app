@@ -145,7 +145,7 @@ export async function POST(req: NextRequest) {
               "If none of these values change, reuse the existing result and do not trigger another tool call.",
             ].join(" "),
             annotations: {
-              readOnlyHint: false,
+              readOnlyHint: true,
               destructiveHint: false,
               openWorldHint: true,
             },
